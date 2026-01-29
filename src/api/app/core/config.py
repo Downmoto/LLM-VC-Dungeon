@@ -1,13 +1,14 @@
 from pydantic_settings import BaseSettings
+from typing import Optional
 
 class Settings(BaseSettings):
-    # Options: "cloud" or "local"
-    AI_STACK_MODE: str = "cloud"
+    # options: "cloud" or "local"
+    AI_STACK_MODE: str = "local"
     
-    # Cloud Keys
-    GROQ_API_KEY: str | None = None
+    # cloud keys
+    GROQ_API_KEY: Optional[str] = None
     
-    # Local Model Paths
+    # local model paths
     MODEL_PATH_LOGIC: str = "./models/function-gemma-it.gguf"
     MODEL_PATH_NARRATIVE: str = "./models/llama-3-8b.gguf"
 
