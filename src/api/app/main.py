@@ -104,3 +104,13 @@ async def classify_intent(request: ClassifyIntentRequest):
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"classification failed: {str(e)}")
+
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(
+        "app.main:app",
+        host=settings.HOST,
+        port=settings.PORT,
+        reload=True
+    )
