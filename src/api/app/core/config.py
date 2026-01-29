@@ -2,6 +2,10 @@ from pydantic_settings import BaseSettings
 from typing import Optional
 
 class Settings(BaseSettings):
+    # server configuration
+    PORT: int = 8000
+    HOST: str = "0.0.0.0"
+    
     # options: "cloud" or "local"
     AI_STACK_MODE: str = "local"
     
