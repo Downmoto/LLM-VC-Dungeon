@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { ApiStatus, TextGenerator, IntentClassifier } from '$lib';
+  import { ApiStatus, TextGenerator, IntentClassifier, GameTurn } from '$lib';
 </script>
 
 <div class="container">
@@ -10,6 +10,7 @@
 
   <main>
     <ApiStatus />
+    <GameTurn />
     <TextGenerator />
     <IntentClassifier />
   </main>

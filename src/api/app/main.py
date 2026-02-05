@@ -4,6 +4,7 @@ from pydantic import BaseModel
 from typing import Optional, Any
 from app.core.config import settings
 from app.game.game import GameEngine
+from app.services.llm import LLMService
 
 
 # pydantic models for request/response
@@ -32,6 +33,7 @@ class GameTurnRequest(BaseModel):
 
 class GameTurnResponse(BaseModel):
     narrative: str
+    action: Optional[dict] = None
 
 
 # initialize fastapi app
@@ -50,6 +52,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# initialize game engine and llm provider
+game_engine = GameEngine()
+llm_provider = LLMService()
+
+
 
 @app.get("/")
 async def root() -> dict[str, Any]:
@@ -57,7 +64,7 @@ async def root() -> dict[str, Any]:
     return {
         "status": "healthy",
         "ollama_url": settings.OLLAMA_BASE_URL,
-        "ollama_model": settings.OLLAMA_MODEL,
+        "ollama_model": settings.OLLAMA_GEN_MODEL,
         "endpoints": {
             "generate": "/api/generate",
             "classify": "/api/classify"
@@ -86,8 +93,8 @@ async def process_game_turn(request: GameTurnRequest, background_tasks: Backgrou
         raise HTTPException(status_code=503, detail="llm provider not initialized")
     
     try:
-        narrative = await game_engine.process_turn(request.user_input, llm_provider, background_tasks)
-        return GameTurnResponse(narrative=narrative)
+        (narrative, action) = await game_engine.process_turn(request.user_input, llm_provider, background_tasks)
+        return GameTurnResponse(narrative=narrative, action=action)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"game turn failed: {str(e)}")
 

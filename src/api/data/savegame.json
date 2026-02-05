@@ -1,0 +1,201 @@
+{
+  "theme": "Here's a unique dungeon setting:\n\n\"The Everglow Oasis\" - A mystical, underwater palace of iridescent coral and bioluminescent flowers, hidden beneath the waves for millennia, where an ancient civilization has constructed a labyrinthine city to appease their capricious sea goddess, now home to enigmatic, aquatic beings that weave reality with every whispered secret.\n\nThis setting combines elements of fantasy, mythology, and surrealism to create an immersive environment where players will need to navigate the blurred lines between reality and myth.",
+  "player": {
+    "hp": 100,
+    "max_hp": 100,
+    "inventory": [],
+    "current_room_id": "room_0"
+  },
+  "rooms": {
+    "room_0": {
+      "id": "room_0",
+      "exits": {
+        "east": "room_1",
+        "south": "room_2",
+        "west": "room_3",
+        "north": "room_4"
+      },
+      "description": "The grand entrance of the Everglow Oasis lies before you, an ethereal glow emanating from the delicate coral pillars that support the vaulted ceiling. Schools of rainbow-tailed fish dart through the crystal-clear waters as bioluminescent flowers bloom on the walls, casting an otherworldly ambiance.",
+      "items": [
+        {
+          "name": "Glimmering Pearl",
+          "description": "",
+          "is_generated": true,
+          "type": "treasure"
+        },
+        {
+          "name": "Luminous Scroll",
+          "description": "",
+          "is_generated": true,
+          "type": "potion"
+        }
+      ],
+      "enemies": [
+        {
+          "name": "Moonwhisper Serpent",
+          "description": "A serpent with scales that shimmer like moonlight, capable of manipulating the currents to ensnare its prey.",
+          "is_generated": true,
+          "type": "beast",
+          "hp": 10,
+          "max_hp": 10
+        }
+      ],
+      "is_visited": false,
+      "is_generated": true
+    },
+    "room_1": {
+      "id": "room_1",
+      "exits": {
+        "west": "room_0",
+        "south": "room_5",
+        "north": "room_6",
+        "east": "room_7"
+      },
+      "description": "As you enter the grand entrance of the Everglow Oasis, the soft glow from the coral pillars casts an ethereal ambiance on the crystal-clear waters. Schools of rainbow-tailed fish dart through the area as bioluminescent flowers bloom on the walls.",
+      "items": [
+        {
+          "name": "Glimmering Pearl",
+          "description": "",
+          "is_generated": true,
+          "type": "treasure"
+        }
+      ],
+      "enemies": [],
+      "is_visited": false,
+      "is_generated": true
+    },
+    "room_2": {
+      "id": "room_2",
+      "exits": {
+        "north": "room_0",
+        "east": "room_5",
+        "west": "room_8",
+        "south": "room_9"
+      },
+      "description": "The soft glow of bioluminescent flowers illuminates the tranquil corridor, casting an ethereal ambiance as schools of rainbow-tailed fish swim lazily through the crystal-clear waters.",
+      "items": [
+        {
+          "name": "Pearlescent Shell",
+          "description": "",
+          "is_generated": true,
+          "type": "treasure"
+        }
+      ],
+      "enemies": [],
+      "is_visited": false,
+      "is_generated": true
+    },
+    "room_3": {
+      "id": "room_3",
+      "exits": {
+        "east": "room_0"
+      },
+      "description": "You find yourself in a tranquil, moonlit courtyard surrounded by delicate coral arches that seem to shimmer with an ethereal glow. Schools of tiny, luminescent fish dart through the crystal-clear waters, their scales flashing like diamonds as they weave between the pillars. The air is heavy with the sweet scent of blooming bioluminescent flowers.",
+      "items": [
+        {
+          "name": "Glimmering Shell",
+          "description": "",
+          "is_generated": true,
+          "type": "treasure"
+        },
+        {
+          "name": "Pearlescent Oar",
+          "description": "",
+          "is_generated": true,
+          "type": "weapon"
+        }
+      ],
+      "enemies": [
+        {
+          "name": "Luminari Wraith",
+          "description": "",
+          "is_generated": true,
+          "type": "undead",
+          "hp": 10,
+          "max_hp": 10
+        }
+      ],
+      "is_visited": false,
+      "is_generated": true
+    },
+    "room_4": {
+      "id": "room_4",
+      "exits": {
+        "south": "room_0"
+      },
+      "description": "The soft glow of luminescent mushrooms illuminates the dark alcoves, casting an eerie light on the glittering shells that adorn the walls. The air is heavy with the sweet scent of blooming sea flowers, and the gentle lapping of waves against the coral pillars creates a soothing melody.",
+      "items": [
+        {
+          "name": "Glittering Shell",
+          "description": "",
+          "is_generated": true,
+          "type": "treasure"
+        }
+      ],
+      "enemies": [],
+      "is_visited": false,
+      "is_generated": true
+    },
+    "room_5": {
+      "id": "room_5",
+      "exits": {
+        "north": "room_1",
+        "west": "room_2"
+      },
+      "description": "",
+      "items": [],
+      "enemies": [],
+      "is_visited": false,
+      "is_generated": false
+    },
+    "room_6": {
+      "id": "room_6",
+      "exits": {
+        "south": "room_1"
+      },
+      "description": "",
+      "items": [],
+      "enemies": [],
+      "is_visited": false,
+      "is_generated": false
+    },
+    "room_7": {
+      "id": "room_7",
+      "exits": {
+        "west": "room_1"
+      },
+      "description": "",
+      "items": [],
+      "enemies": [],
+      "is_visited": false,
+      "is_generated": false
+    },
+    "room_8": {
+      "id": "room_8",
+      "exits": {
+        "east": "room_2"
+      },
+      "description": "",
+      "items": [],
+      "enemies": [],
+      "is_visited": false,
+      "is_generated": false
+    },
+    "room_9": {
+      "id": "room_9",
+      "exits": {
+        "north": "room_2"
+      },
+      "description": "",
+      "items": [],
+      "enemies": [],
+      "is_visited": false,
+      "is_generated": false
+    }
+  },
+  "history": [
+    "Welcome to the dungeon. Theme: Here's a unique dungeon setting:\n\n\"The Everglow Oasis\" - A mystical, underwater palace of iridescent coral and bioluminescent flowers, hidden beneath the waves for millennia, where an ancient civilization has constructed a labyrinthine city to appease their capricious sea goddess, now home to enigmatic, aquatic beings that weave reality with every whispered secret.\n\nThis setting combines elements of fantasy, mythology, and surrealism to create an immersive environment where players will need to navigate the blurred lines between reality and myth.",
+    "Action: Where am I | Result: You take a step forward into the grand entrance, and as your foot breaks the surface tension, the bioluminescent flowers on the walls seem to lean in, their petals fluttering with an almost imperceptible whisper of welcome. The fish darting through the water part to let you pass, their scales shimmering like tiny stained glass windows as they weave past one another.",
+    "Action: look around the area | Result: As you gaze about the entrance hall, the soft glow of the bioluminescent flowers seems to harmonize with your own presence, creating an illusion of familiarity in this mystical environment. The gentle dance of the rainbow-tailed fish and the delicate architecture blend together in a soothing melody that belies any sense of unease or uncertainty."
+  ]
+}

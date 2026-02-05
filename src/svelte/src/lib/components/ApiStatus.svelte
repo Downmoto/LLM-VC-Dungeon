@@ -36,8 +36,8 @@
   {:else if health}
     <div class="success">
       <p>✅ Status: <strong>{health.status}</strong></p>
-      <p>🤖 AI Stack Mode: <strong>{health.ai_stack_mode}</strong></p>
-      <p>🔌 Provider Initialized: <strong>{health.provider_initialized ? 'Yes' : 'No'}</strong></p>
+      <p>🤖 Ollama URL: <strong>{health.ollama_url}</strong></p>
+      <p>🔮 Model: <strong>{health.ollama_model}</strong></p>
       <button onclick={checkHealth}>Refresh</button>
     </div>
   {/if}
