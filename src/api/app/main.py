@@ -1,13 +1,15 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional, Any
 from contextlib import asynccontextmanager
 from app.core.factory import get_llm_provider
 from app.core.config import settings
+from app.game.game import GameEngine
 
 
 llm_provider = None
+game_engine = GameEngine()
 
 
 @asynccontextmanager
@@ -39,6 +41,14 @@ class ClassifyIntentResponse(BaseModel):
     action: str
     target: str
     confidence: float
+
+
+class GameTurnRequest(BaseModel):
+    user_input: str
+
+
+class GameTurnResponse(BaseModel):
+    narrative: str
 
 
 # initialize fastapi app
@@ -104,6 +114,19 @@ async def classify_intent(request: ClassifyIntentRequest):
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"classification failed: {str(e)}")
+
+
+@app.post("/api/game/turn", response_model=GameTurnResponse)
+async def process_game_turn(request: GameTurnRequest, background_tasks: BackgroundTasks):
+    """process a game turn with user input"""
+    if not llm_provider:
+        raise HTTPException(status_code=503, detail="llm provider not initialized")
+    
+    try:
+        narrative = await game_engine.process_turn(request.user_input, llm_provider, background_tasks)
+        return GameTurnResponse(narrative=narrative)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"game turn failed: {str(e)}")
 
 
 if __name__ == "__main__":
