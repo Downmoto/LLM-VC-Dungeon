@@ -2,25 +2,8 @@ from fastapi import FastAPI, HTTPException, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional, Any
-from contextlib import asynccontextmanager
-from app.core.factory import get_llm_provider
 from app.core.config import settings
 from app.game.game import GameEngine
-
-
-llm_provider = None
-game_engine = GameEngine()
-
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    """initialize llm provider on startup and cleanup on shutdown"""
-    global llm_provider
-    print(f"starting api with ai_stack_mode: {settings.AI_STACK_MODE}")
-    llm_provider = get_llm_provider()
-    print("llm provider initialized successfully")
-    yield
-    print("shutting down api")
 
 
 # pydantic models for request/response
@@ -55,8 +38,7 @@ class GameTurnResponse(BaseModel):
 app = FastAPI(
     title="llm-vc-dungeon-api",
     description="backend api for voice-controlled dungeon crawler with llm integration",
-    version="0.1.0",
-    lifespan=lifespan
+    version="0.1.0"
 )
 
 # cors middleware for svelte frontend
@@ -74,8 +56,8 @@ async def root() -> dict[str, Any]:
     """health check endpoint"""
     return {
         "status": "healthy",
-        "ai_stack_mode": settings.AI_STACK_MODE,
-        "provider_initialized": llm_provider is not None,
+        "ollama_url": settings.OLLAMA_BASE_URL,
+        "ollama_model": settings.OLLAMA_MODEL,
         "endpoints": {
             "generate": "/api/generate",
             "classify": "/api/classify"
@@ -85,35 +67,16 @@ async def root() -> dict[str, Any]:
 
 @app.post("/api/generate", response_model=GenerateTextResponse)
 async def generate_text(request: GenerateTextRequest):
-    """generate narrative text using the configured llm provider"""
-    if not llm_provider:
-        raise HTTPException(status_code=503, detail="llm provider not initialized")
-    
-    try:
-        text = await llm_provider.generate_text(
-            prompt=request.prompt,
-            system_prompt=request.system_prompt
-        )
-        return GenerateTextResponse(text=text)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"generation failed: {str(e)}")
+    """generate narrative text using langchain + ollama"""
+    # TODO: implement with langchain
+    raise HTTPException(status_code=501, detail="not implemented yet")
 
 
 @app.post("/api/classify", response_model=ClassifyIntentResponse)
 async def classify_intent(request: ClassifyIntentRequest):
-    """classify user intent using the configured llm provider"""
-    if not llm_provider:
-        raise HTTPException(status_code=503, detail="llm provider not initialized")
-    
-    try:
-        result = await llm_provider.classify_intent(user_input=request.user_input)
-        return ClassifyIntentResponse(
-            action=result.get("action", "unknown"),
-            target=result.get("target", ""),
-            confidence=result.get("confidence", 0.0)
-        )
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"classification failed: {str(e)}")
+    """classify user intent using langchain + ollama"""
+    # TODO: implement with langchain
+    raise HTTPException(status_code=501, detail="not implemented yet")
 
 
 @app.post("/api/game/turn", response_model=GameTurnResponse)
