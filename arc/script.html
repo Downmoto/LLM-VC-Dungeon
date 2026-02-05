@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Mermaid Diagram</title>
+</head>
+<body>
+  <div id="diagram"></div>
+  <script src="https://unpkg.com/beautiful-mermaid/dist/beautiful-mermaid.browser.global.js"></script>
+  <script>
+    const { renderMermaid, THEMES } = beautifulMermaid;
+    renderMermaid(`
+  graph TD
+    A[Start] --> B{Decision}
+    B -->|Yes| C[Action]
+    B -->|No| D[End]
+`, THEMES['nord']).then(svg => { 
+      document.getElementById('diagram').innerHTML = svg;
+    }).catch(err => {
+      console.error('Error rendering diagram:', err);
+      document.body.innerHTML = '<p>Error: ' + err.message + '</p>';
+    });
+  </script>
+</body>
+</html>
