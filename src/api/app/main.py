@@ -1,8 +1,9 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional, Any
 from app.core.config import settings
+from app.game.game import GameEngine
 
 
 # pydantic models for request/response
@@ -23,6 +24,14 @@ class ClassifyIntentResponse(BaseModel):
     action: str
     target: str
     confidence: float
+
+
+class GameTurnRequest(BaseModel):
+    user_input: str
+
+
+class GameTurnResponse(BaseModel):
+    narrative: str
 
 
 # initialize fastapi app
@@ -68,6 +77,19 @@ async def classify_intent(request: ClassifyIntentRequest):
     """classify user intent using langchain + ollama"""
     # TODO: implement with langchain
     raise HTTPException(status_code=501, detail="not implemented yet")
+
+
+@app.post("/api/game/turn", response_model=GameTurnResponse)
+async def process_game_turn(request: GameTurnRequest, background_tasks: BackgroundTasks):
+    """process a game turn with user input"""
+    if not llm_provider:
+        raise HTTPException(status_code=503, detail="llm provider not initialized")
+    
+    try:
+        narrative = await game_engine.process_turn(request.user_input, llm_provider, background_tasks)
+        return GameTurnResponse(narrative=narrative)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"game turn failed: {str(e)}")
 
 
 if __name__ == "__main__":
