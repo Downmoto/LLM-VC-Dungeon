@@ -3,6 +3,50 @@ from langchain_core.tools import tool
 from langchain.messages import AIMessage
 from app.core.config import settings
 
+
+# action tools defined as standalone functions (required by langchain @tool decorator)
+@tool
+def action_move(direction: str) -> dict:
+	"""player wants to move in a direction. call this when the user wants to go north, south, east, or west."""
+	return {"action": "move", "direction": direction.lower()}
+
+@tool
+def action_look() -> dict:
+	"""player wants to examine their surroundings or look around the current room."""
+	return {"action": "look"}
+
+@tool
+def action_take(item_name: str) -> dict:
+	"""player wants to pick up or take an item. call this when the user wants to grab, get, or collect something."""
+	return {"action": "take", "target": item_name}
+
+@tool
+def action_attack(target_name: str) -> dict:
+	"""player wants to attack, fight, or engage in combat with an enemy or creature."""
+	return {"action": "attack", "target": target_name}
+
+@tool
+def action_inventory() -> dict:
+	"""player wants to check their inventory, items, or belongings."""
+	return {"action": "inventory"}
+
+@tool
+def action_unknown() -> dict:
+	"""call this when the player's intent doesn't match any known game action."""
+	return {"action": "unknown"}
+
+
+# list of all action tools for binding to the classify agent
+ACTION_TOOLS = [
+	action_move,
+	action_look,
+	action_take,
+	action_attack,
+	action_inventory,
+	action_unknown,
+]
+
+
 class LLMService:
 	generate_text_agent = ChatOllama(
 		model=settings.OLLAMA_GEN_MODEL,
@@ -17,48 +61,8 @@ class LLMService:
 	)
 
 	def __init__(self):
-		# action tools for the classify subagent
-		self.action_tools = [
-			self.action_move,
-			self.action_look,
-			self.action_take,
-			self.action_attack,
-			self.action_inventory,
-			self.action_unknown,
-		]
-		
 		# bind action tools to classify subagent (bind_tools returns a new instance)
-		self.classify_agent = self.classify_agent_llm.bind_tools(self.action_tools)
-
-	@tool
-	def action_move(self, direction: str) -> dict:
-		"""player wants to move in a direction. call this when the user wants to go north, south, east, or west."""
-		return {"action": "move", "direction": direction.lower()}
-
-	@tool
-	def action_look(self) -> dict:
-		"""player wants to examine their surroundings or look around the current room."""
-		return {"action": "look"}
-
-	@tool
-	def action_take(self, item_name: str) -> dict:
-		"""player wants to pick up or take an item. call this when the user wants to grab, get, or collect something."""
-		return {"action": "take", "target": item_name}
-
-	@tool
-	def action_attack(self, target_name: str) -> dict:
-		"""player wants to attack, fight, or engage in combat with an enemy or creature."""
-		return {"action": "attack", "target": target_name}
-
-	@tool
-	def action_inventory(self) -> dict:
-		"""player wants to check their inventory, items, or belongings."""
-		return {"action": "inventory"}
-
-	@tool
-	def action_unknown(self) -> dict:
-		"""call this when the player's intent doesn't match any known game action."""
-		return {"action": "unknown"}
+		self.classify_agent = self.classify_agent_llm.bind_tools(ACTION_TOOLS)
 
 	async def generate_text(self, prompt: str, system_prompt: str | None = None) -> str:
 		"""
@@ -121,7 +125,7 @@ Call the most appropriate tool based on the player's intent."""
 			tool_args = tool_call.get('args', {})
 			
 			# execute the tool to get the result
-			for action_tool in self.action_tools:
+			for action_tool in ACTION_TOOLS:
 				if action_tool.name == tool_name:
 					result = action_tool.invoke(tool_args)
 					print(f"Classified intent: {result}")
