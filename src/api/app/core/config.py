@@ -8,7 +8,7 @@ class Settings(BaseSettings):
     # ollama configuration
     OLLAMA_BASE_URL: str = "http://localhost:11434"
     OLLAMA_GEN_MODEL: str = "qwen3:8b"
-    OLLAMA_CLASSIFY_MODEL: str = "qwen3:8b"
+    OLLAMA_CLASSIFY_MODEL: str = "qwen3:8b" # pre tool calling update, use the same model for both gen and classify
     
     # agent configuration
     AGENT_TEMPERATURE: float = 0.7
