@@ -267,8 +267,8 @@
   }
 
   .status-indicator.connected {
-    background: #888;
-    box-shadow: 0 0 4px #888;
+    background: #0f0;
+    box-shadow: 0 0 4px #0f0;
   }
 
   .status-text {

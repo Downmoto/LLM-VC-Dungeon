@@ -1,6 +1,6 @@
 <script lang="ts">
   import { apiClient, ApiError } from '$lib/api/client';
-  import { onMount } from 'svelte';
+  import { onMount, onDestroy } from 'svelte';
   import Terminal from '$lib/components/Terminal.svelte';
   import { createMessageLogger } from '$lib/utils/messageLogger.svelte';
   import { createCommandRegistry } from '$lib/utils/commandSystem';
@@ -86,6 +86,17 @@
   });
 
   // check api connection on mount
+  let pollInterval: ReturnType<typeof setInterval>;
+
+  async function checkConnection() {
+    try {
+      await apiClient.healthCheck();
+      connected = true;
+    } catch (err) {
+      connected = false;
+    }
+  }
+
   onMount(async () => {
     logger.addSystem('initializing connection to dungeon master...');
     try {
@@ -102,8 +113,18 @@
       logger.addSystem('type /help for available commands.');
       logger.addSystem('');
     } catch (err) {
+      connected = false;
       logger.addError('failed to connect to server');
       logger.addSystem('check /api-check for diagnostics');
+    }
+
+    // poll connection status every 5 seconds
+    pollInterval = setInterval(checkConnection, 5000);
+  });
+
+  onDestroy(() => {
+    if (pollInterval) {
+      clearInterval(pollInterval);
     }
   });
 
