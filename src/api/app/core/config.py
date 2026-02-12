@@ -7,7 +7,8 @@ class Settings(BaseSettings):
     
     # ollama configuration
     OLLAMA_BASE_URL: str = "http://localhost:11434"
-    OLLAMA_MODEL: str = "llama3.1:8b"
+    OLLAMA_GEN_MODEL: str = "qwen3:8b"
+    OLLAMA_CLASSIFY_MODEL: str = "qwen3:8b"
     
     # agent configuration
     AGENT_TEMPERATURE: float = 0.7

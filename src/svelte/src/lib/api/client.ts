@@ -23,12 +23,21 @@ export interface ClassifyIntentResponse {
 
 export interface HealthResponse {
   status: string;
-  ai_stack_mode: string;
-  provider_initialized: boolean;
+  ollama_url: string;
+  ollama_model: string;
   endpoints: {
     generate: string;
     classify: string;
   };
+}
+
+export interface GameTurnRequest {
+  user_input: string;
+}
+
+export interface GameTurnResponse {
+  narrative: string;
+  action?: Record<string, any>;
 }
 
 // api error class
@@ -90,6 +99,14 @@ export const apiClient = {
   // classify user intent
   async classifyIntent(request: ClassifyIntentRequest): Promise<ClassifyIntentResponse> {
     return apiFetch<ClassifyIntentResponse>('/api/classify', {
+      method: 'POST',
+      body: JSON.stringify(request),
+    });
+  },
+
+  // process game turn
+  async processGameTurn(request: GameTurnRequest): Promise<GameTurnResponse> {
+    return apiFetch<GameTurnResponse>('/api/game/turn', {
       method: 'POST',
       body: JSON.stringify(request),
     });
