@@ -8,23 +8,24 @@ from app.services.llm import LLMService
 
 
 # pydantic models for request/response
-class GenerateTextRequest(BaseModel):
-    prompt: str
-    system_prompt: Optional[str] = None
+class NewGameRequest(BaseModel):
+    save_path: Optional[str] = None
 
 
-class GenerateTextResponse(BaseModel):
-    text: str
+class NewGameResponse(BaseModel):
+    message: str
+    game_id: str
+    initial_room: str
 
 
-class ClassifyIntentRequest(BaseModel):
-    user_input: str
+class LoadGameRequest(BaseModel):
+    save_path: Optional[str] = None
 
 
-class ClassifyIntentResponse(BaseModel):
-    action: str
-    target: str
-    confidence: float
+class LoadGameResponse(BaseModel):
+    message: str
+    game_id: str
+    current_room: str
 
 
 class GameTurnRequest(BaseModel):
@@ -66,24 +67,72 @@ async def root() -> dict[str, Any]:
         "ollama_url": settings.OLLAMA_BASE_URL,
         "ollama_model": settings.OLLAMA_GEN_MODEL,
         "endpoints": {
-            "generate": "/api/generate",
-            "classify": "/api/classify"
+            "new-game": "/api/new-game",
+            "load-game": "/api/load-game",
+            "game-turn": "/api/game/turn"
         }
     }
 
 
-@app.post("/api/generate", response_model=GenerateTextResponse)
-async def generate_text(request: GenerateTextRequest):
-    """generate narrative text using langchain + ollama"""
-    # TODO: implement with langchain
-    raise HTTPException(status_code=501, detail="not implemented yet")
+@app.post("/api/new-game", response_model=NewGameResponse)
+async def new_game(request: NewGameRequest):
+    """start a new game with fresh game state"""
+    if not llm_provider:
+        raise HTTPException(status_code=503, detail="llm provider not initialized")
+    
+    try:
+        # create new game engine instance
+        save_path = request.save_path or "data/savegame.json"
+        new_game_engine = GameEngine(save_path)
+        
+        # initialize with fresh game state
+        await new_game_engine.init_game(llm_provider)
+        
+        # replace global game engine
+        global game_engine
+        game_engine = new_game_engine
+        
+        # get initial state
+        state = await game_engine.get_state(llm_provider)
+        current_room = state.rooms[state.player.current_room_id]
+        
+        return NewGameResponse(
+            message="new game started successfully",
+            game_id=state.player.current_room_id,
+            initial_room=current_room.description
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"failed to start new game: {str(e)}")
 
 
-@app.post("/api/classify", response_model=ClassifyIntentResponse)
-async def classify_intent(request: ClassifyIntentRequest):
-    """classify user intent using langchain + ollama"""
-    # TODO: implement with langchain
-    raise HTTPException(status_code=501, detail="not implemented yet")
+@app.post("/api/load-game", response_model=LoadGameResponse)
+async def load_game_endpoint(request: LoadGameRequest):
+    """load an existing game from save file"""
+    if not llm_provider:
+        raise HTTPException(status_code=503, detail="llm provider not initialized")
+    
+    try:
+        save_path = request.save_path or "data/savegame.json"
+        loaded_game_engine = GameEngine(save_path)
+        
+        # load existing game state
+        await loaded_game_engine.init_game(llm_provider)
+        
+        # replace global game engine
+        global game_engine
+        game_engine = loaded_game_engine
+        
+        # get current state
+        state = await game_engine.get_state(llm_provider)
+        current_room = state.rooms[state.player.current_room_id]
+        
+        return LoadGameResponse(
+            message="game loaded successfully",
+            game_id=state.player.current_room_id,
+            current_room=current_room.description
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"failed to load game: {str(e)}")
 
 
 @app.post("/api/game/turn", response_model=GameTurnResponse)

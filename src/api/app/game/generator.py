@@ -79,7 +79,7 @@ def _get_opposite_direction(direction: Direction) -> Direction:
 
 # LLM Hooks
 async def generate_theme(llm_service) -> str:
-    prompt = "Invent a unique, creative, and coherent dungeon theme/setting. Describe it in 1-2 sentences. Example: 'A subterranean dwarven hold overrun by crystal constructs that reflect the players worst fears.'"
+    prompt = "Invent a unique, creative, and coherent dungeon theme/setting. Describe it in 1-2 sentences."
     theme = await llm_service.generate_text(prompt, system_prompt="You are a creative dungeon master.")
     return theme.strip()
 
