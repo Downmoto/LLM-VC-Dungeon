@@ -38,6 +38,19 @@ class GameTurnResponse(BaseModel):
     action: Optional[dict] = None
 
 
+class MapRoomResponse(BaseModel):
+    id: str
+    exits: dict[str, str]
+    is_generated: bool
+    is_visited: bool
+
+
+class GameMapResponse(BaseModel):
+    theme: str
+    current_room_id: str
+    rooms: list[MapRoomResponse]
+
+
 class GenerateTextRequest(BaseModel):
     prompt: str
     system_prompt: Optional[str] = None
@@ -100,6 +113,7 @@ async def root() -> dict[str, Any]:
             "new-game": "/api/new-game",
             "load-game": "/api/load-game",
             "game-turn": "/api/game/turn",
+            "game-map": "/api/game/map",
             "generate": "/api/generate",
             "classify": "/api/classify"
         }
@@ -216,6 +230,29 @@ async def process_game_turn(request: GameTurnRequest, background_tasks: Backgrou
         return GameTurnResponse(narrative=narrative, action=action)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"game turn failed: {str(e)}")
+
+
+@app.get("/api/game/map", response_model=GameMapResponse)
+async def get_game_map():
+    """return room graph metadata for frontend map rendering"""
+    try:
+        state = await game_engine.get_state(llm_provider)
+        rooms = [
+            MapRoomResponse(
+                id=room.id,
+                exits=room.exits,
+                is_generated=room.is_generated,
+                is_visited=room.is_visited,
+            )
+            for room in state.rooms.values()
+        ]
+        return GameMapResponse(
+            theme=state.theme,
+            current_room_id=state.player.current_room_id,
+            rooms=rooms,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"failed to fetch game map: {str(e)}")
 
 
 if __name__ == "__main__":

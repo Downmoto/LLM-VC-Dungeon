@@ -40,6 +40,29 @@ export interface GameTurnResponse {
   action?: Record<string, any>;
 }
 
+export interface NewGameRequest {
+  save_path?: string;
+}
+
+export interface NewGameResponse {
+  message: string;
+  game_id: string;
+  initial_room: string;
+}
+
+export interface MapRoomResponse {
+  id: string;
+  exits: Record<string, string>;
+  is_generated: boolean;
+  is_visited: boolean;
+}
+
+export interface GameMapResponse {
+  theme: string;
+  current_room_id: string;
+  rooms: MapRoomResponse[];
+}
+
 // api error class
 export class ApiError extends Error {
   constructor(
@@ -110,5 +133,18 @@ export const apiClient = {
       method: 'POST',
       body: JSON.stringify(request),
     });
+  },
+
+  // start a new game
+  async newGame(request: NewGameRequest = {}): Promise<NewGameResponse> {
+    return apiFetch<NewGameResponse>('/api/new-game', {
+      method: 'POST',
+      body: JSON.stringify(request),
+    });
+  },
+
+  // fetch current dungeon map graph
+  async getGameMap(): Promise<GameMapResponse> {
+    return apiFetch<GameMapResponse>('/api/game/map');
   },
 };
