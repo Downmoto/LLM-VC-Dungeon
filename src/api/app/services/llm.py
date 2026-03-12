@@ -1,6 +1,5 @@
-from langchain_ollama import ChatOllama
 from langchain_core.tools import tool
-from langchain.messages import AIMessage
+from langchain_ollama import ChatOllama
 from app.core.config import settings
 
 
@@ -48,21 +47,80 @@ ACTION_TOOLS = [
 
 
 class LLMService:
-	generate_text_agent = ChatOllama(
-		model=settings.OLLAMA_GEN_MODEL,
-		temperature=settings.AGENT_TEMPERATURE,
-		base_url=settings.OLLAMA_BASE_URL,
-	)
-	
-	classify_agent_llm = ChatOllama(
-		model=settings.OLLAMA_CLASSIFY_MODEL,
-		temperature=settings.AGENT_TEMPERATURE,
-		base_url=settings.OLLAMA_BASE_URL,
-	)
-
 	def __init__(self):
+		provider = settings.LLM_PROVIDER.lower()
+		self.provider = provider
+
+		self.generate_text_agent = self._build_model(
+			provider=provider,
+			model_name=self._get_generation_model(provider),
+		)
+		self.classify_agent_llm = self._build_model(
+			provider=provider,
+			model_name=self._get_classification_model(provider),
+		)
+
 		# bind action tools to classify subagent (bind_tools returns a new instance)
 		self.classify_agent = self.classify_agent_llm.bind_tools(ACTION_TOOLS)
+
+	def _get_generation_model(self, provider: str) -> str:
+		if provider == "openai":
+			return settings.OPENAI_GEN_MODEL
+		if provider == "google":
+			return settings.GOOGLE_GEN_MODEL
+		return settings.OLLAMA_GEN_MODEL
+
+	def _get_classification_model(self, provider: str) -> str:
+		if provider == "openai":
+			return settings.OPENAI_CLASSIFY_MODEL
+		if provider == "google":
+			return settings.GOOGLE_CLASSIFY_MODEL
+		return settings.OLLAMA_CLASSIFY_MODEL
+
+	def _build_model(self, provider: str, model_name: str):
+		if provider == "ollama":
+			return ChatOllama(
+				model=model_name,
+				temperature=settings.AGENT_TEMPERATURE,
+				base_url=settings.OLLAMA_BASE_URL,
+			)
+
+		if provider == "openai":
+			api_key = settings.OPENAI_API_KEY.strip()
+			if not api_key:
+				raise ValueError("OPENAI_API_KEY must be set when LLM_PROVIDER=openai")
+
+			try:
+				from langchain_openai import ChatOpenAI
+			except ImportError as exc:
+				raise ImportError("langchain-openai is required when LLM_PROVIDER=openai") from exc
+
+			kwargs = {
+				"model": model_name,
+				"temperature": settings.AGENT_TEMPERATURE,
+				"api_key": api_key,
+			}
+			if settings.OPENAI_BASE_URL.strip():
+				kwargs["base_url"] = settings.OPENAI_BASE_URL.strip()
+			return ChatOpenAI(**kwargs)
+
+		if provider == "google":
+			api_key = settings.GOOGLE_API_KEY.strip()
+			if not api_key:
+				raise ValueError("GOOGLE_API_KEY must be set when LLM_PROVIDER=google")
+
+			try:
+				from langchain_google_genai import ChatGoogleGenerativeAI
+			except ImportError as exc:
+				raise ImportError("langchain-google-genai is required when LLM_PROVIDER=google") from exc
+
+			return ChatGoogleGenerativeAI(
+				model=model_name,
+				temperature=settings.AGENT_TEMPERATURE,
+				google_api_key=api_key,
+			)
+
+		raise ValueError(f"Unsupported LLM_PROVIDER: {provider}")
 
 	async def generate_text(self, prompt: str, system_prompt: str | None = None) -> str:
 		"""

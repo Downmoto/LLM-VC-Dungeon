@@ -4,6 +4,7 @@ from pydantic import BaseModel
 from typing import Optional, Any
 from app.core.config import settings
 from app.game.game import GameEngine
+from app.game.intent import classify_intent_programmatic
 from app.services.llm import LLMService
 
 
@@ -37,6 +38,25 @@ class GameTurnResponse(BaseModel):
     action: Optional[dict] = None
 
 
+class GenerateTextRequest(BaseModel):
+    prompt: str
+    system_prompt: Optional[str] = None
+
+
+class GenerateTextResponse(BaseModel):
+    text: str
+
+
+class ClassifyIntentRequest(BaseModel):
+    user_input: str
+
+
+class ClassifyIntentResponse(BaseModel):
+    action: str
+    target: str
+    confidence: float
+
+
 # initialize fastapi app
 app = FastAPI(
     title="llm-vc-dungeon-api",
@@ -55,29 +75,79 @@ app.add_middleware(
 
 # initialize game engine and llm provider
 game_engine = GameEngine()
-llm_provider = LLMService()
+llm_provider: Optional[LLMService] = None
+if settings.GAME_MODE.lower() in {"llm", "hybrid"} or settings.ENABLE_LLM_NARRATION:
+    llm_provider = LLMService()
 
 
 
 @app.get("/")
 async def root() -> dict[str, Any]:
     """health check endpoint"""
+    provider = settings.LLM_PROVIDER.lower()
+    model = settings.OLLAMA_GEN_MODEL
+    if provider == "openai":
+        model = settings.OPENAI_GEN_MODEL
+    elif provider == "google":
+        model = settings.GOOGLE_GEN_MODEL
     return {
         "status": "healthy",
         "ollama_url": settings.OLLAMA_BASE_URL,
         "ollama_model": settings.OLLAMA_GEN_MODEL,
+        "llm_provider": provider,
+        "llm_model": model,
         "endpoints": {
             "new-game": "/api/new-game",
             "load-game": "/api/load-game",
-            "game-turn": "/api/game/turn"
+            "game-turn": "/api/game/turn",
+            "generate": "/api/generate",
+            "classify": "/api/classify"
         }
     }
+
+
+@app.post("/api/generate", response_model=GenerateTextResponse)
+async def generate_text(request: GenerateTextRequest):
+    """generate text for diagnostics and development tooling"""
+    if llm_provider is not None:
+        text = await llm_provider.generate_text(request.prompt, request.system_prompt)
+        return GenerateTextResponse(text=text)
+
+    # fallback for programmatic mode so diagnostics remain functional
+    prefix = "programmatic mode"
+    if request.system_prompt:
+        prefix = f"{prefix} ({request.system_prompt[:40]})"
+    return GenerateTextResponse(text=f"{prefix}: {request.prompt}")
+
+
+@app.post("/api/classify", response_model=ClassifyIntentResponse)
+async def classify_intent(request: ClassifyIntentRequest):
+    """classify intent for diagnostics and development tooling"""
+    mode = settings.GAME_MODE.lower()
+    intent = classify_intent_programmatic(request.user_input)
+    confidence = 0.9 if intent.get("action") != "unknown" else 0.25
+
+    if mode in {"llm", "hybrid"} and llm_provider is not None:
+        llm_intent = await llm_provider.classify_intent(request.user_input)
+        if mode == "llm" or intent.get("action") == "unknown":
+            intent = llm_intent
+            confidence = 0.95 if intent.get("action") != "unknown" else 0.3
+
+    target = intent.get("target", "")
+    if not target and intent.get("action") == "move":
+        target = intent.get("direction", "")
+
+    return ClassifyIntentResponse(
+        action=intent.get("action", "unknown"),
+        target=target,
+        confidence=confidence,
+    )
 
 
 @app.post("/api/new-game", response_model=NewGameResponse)
 async def new_game(request: NewGameRequest):
     """start a new game with fresh game state"""
-    if not llm_provider:
+    if settings.GAME_MODE.lower() == "llm" and not llm_provider:
         raise HTTPException(status_code=503, detail="llm provider not initialized")
     
     try:
@@ -108,7 +178,7 @@ async def new_game(request: NewGameRequest):
 @app.post("/api/load-game", response_model=LoadGameResponse)
 async def load_game_endpoint(request: LoadGameRequest):
     """load an existing game from save file"""
-    if not llm_provider:
+    if settings.GAME_MODE.lower() == "llm" and not llm_provider:
         raise HTTPException(status_code=503, detail="llm provider not initialized")
     
     try:
@@ -138,7 +208,7 @@ async def load_game_endpoint(request: LoadGameRequest):
 @app.post("/api/game/turn", response_model=GameTurnResponse)
 async def process_game_turn(request: GameTurnRequest, background_tasks: BackgroundTasks):
     """process a game turn with user input"""
-    if not llm_provider:
+    if settings.GAME_MODE.lower() == "llm" and not llm_provider:
         raise HTTPException(status_code=503, detail="llm provider not initialized")
     
     try:

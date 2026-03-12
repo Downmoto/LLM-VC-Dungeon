@@ -1,7 +1,130 @@
 import random
 import json
-from typing import List, Dict, Set, Tuple
+from typing import List, Dict, Tuple
 from .models import Room, Direction, GameState, PlayerState, Item, Enemy, ItemType, EnemyType
+
+PROGRAMMATIC_THEMES = [
+    "an abandoned dwarven mine reclaimed by roots and fungus",
+    "a flooded crypt where echoes carry across stone vaults",
+    "a ruined arcane laboratory humming with unstable energy",
+    "a volcanic fortress with cracked basalt halls",
+]
+
+BIOME_TABLES = {
+    "mine": {
+        "descriptors": ["narrow", "dusty", "splintered", "ore-streaked"],
+        "features": ["collapsed beams", "ore carts", "pickaxe marks", "fractured supports"],
+        "items": [
+            ("miner's pick", ItemType.WEAPON, "a heavy pick with a worn grip"),
+            ("sturdy vest", ItemType.ARMOR, "workwear reinforced with leather plates"),
+            ("coal tonic", ItemType.POTION, "a bitter mixture that restores stamina"),
+            ("shaft key", ItemType.KEY, "a brass key tagged with a faded number"),
+            ("ore satchel", ItemType.TREASURE, "a pouch filled with low-grade silver ore"),
+        ],
+        "enemies": [
+            ("tunnel rat", EnemyType.BEAST, "a giant rat used to darkness"),
+            ("mine warden skeleton", EnemyType.UNDEAD, "bones wrapped in rusted chainmail"),
+            ("cave scavenger", EnemyType.HUMANOID, "a desperate looter with a lantern"),
+        ],
+    },
+    "crypt": {
+        "descriptors": ["cold", "echoing", "mossy", "sepulchral"],
+        "features": ["stone sarcophagi", "dripping vaults", "faded epitaphs", "funerary braziers"],
+        "items": [
+            ("blessed dagger", ItemType.WEAPON, "a short blade etched with warding runes"),
+            ("grave shroud", ItemType.ARMOR, "a woven shroud that dampens cold"),
+            ("saint's vial", ItemType.POTION, "a luminous draught of restoration"),
+            ("catacomb key", ItemType.KEY, "a black iron key crowned with a skull motif"),
+            ("reliquary charm", ItemType.TREASURE, "a gold charm from a broken reliquary"),
+        ],
+        "enemies": [
+            ("restless bones", EnemyType.UNDEAD, "an animated pile of clattering bones"),
+            ("crypt hound", EnemyType.BEAST, "a pale hound with glowing eyes"),
+            ("grave robber", EnemyType.HUMANOID, "a thief looking for relics"),
+        ],
+    },
+    "arcane": {
+        "descriptors": ["humming", "charged", "smoky", "glimmering"],
+        "features": ["broken sigils", "shattered glassware", "runic circles", "flickering conduits"],
+        "items": [
+            ("arc spark rod", ItemType.WEAPON, "a focus rod crackling with weak energy"),
+            ("insulated mantle", ItemType.ARMOR, "fabric woven with copper thread"),
+            ("focus serum", ItemType.POTION, "a sharp tonic that clears the mind"),
+            ("glyph key", ItemType.KEY, "a crystalline key attuned to runic locks"),
+            ("charged crystal", ItemType.TREASURE, "a palm-sized crystal pulsing with mana"),
+        ],
+        "enemies": [
+            ("rogue apprentice", EnemyType.HUMANOID, "a panicked mage wielding sparks"),
+            ("arc sprite", EnemyType.DEMON, "a tiny malicious elemental"),
+            ("clockwork sentinel", EnemyType.CONSTRUCT, "a dented automaton sparking at the joints"),
+        ],
+    },
+    "volcanic": {
+        "descriptors": ["smoky", "scorched", "sulfurous", "heat-warped"],
+        "features": ["basalt pillars", "magma cracks", "ash drifts", "charred banners"],
+        "items": [
+            ("obsidian blade", ItemType.WEAPON, "a jagged sword forged from volcanic glass"),
+            ("ashguard plate", ItemType.ARMOR, "armor treated to resist searing heat"),
+            ("ember tonic", ItemType.POTION, "a warming draught that steadies the body"),
+            ("forge key", ItemType.KEY, "a blackened key marked with smithing runes"),
+            ("molten ruby", ItemType.TREASURE, "a gem that glows from trapped heat"),
+        ],
+        "enemies": [
+            ("lava crawler", EnemyType.BEAST, "a crusted creature that spits embers"),
+            ("infernal zealot", EnemyType.HUMANOID, "a fanatic wrapped in flame-marked cloth"),
+            ("char sentinel", EnemyType.CONSTRUCT, "a stone guardian with a molten core"),
+        ],
+    },
+}
+
+
+def _infer_biome(theme: str) -> str:
+    lowered = theme.lower()
+    if "mine" in lowered or "dwarven" in lowered:
+        return "mine"
+    if "crypt" in lowered or "vault" in lowered:
+        return "crypt"
+    if "arcane" in lowered or "laboratory" in lowered:
+        return "arcane"
+    if "volcanic" in lowered or "basalt" in lowered or "magma" in lowered:
+        return "volcanic"
+    return random.choice(list(BIOME_TABLES.keys()))
+
+
+def _room_difficulty(room_id: str) -> int:
+    try:
+        _, num = room_id.split("_", 1)
+        index = int(num)
+    except Exception:
+        return 1
+
+    if index <= 2:
+        return 1
+    if index <= 5:
+        return 2
+    if index <= 8:
+        return 3
+    return 4
+
+
+def _roll_item_count(difficulty: int) -> int:
+    if difficulty == 1:
+        return 1 if random.random() < 0.55 else 0
+    if difficulty == 2:
+        return 1 if random.random() < 0.7 else 0
+    if difficulty == 3:
+        return 1 + (1 if random.random() < 0.25 else 0)
+    return 1 + (1 if random.random() < 0.4 else 0)
+
+
+def _roll_enemy_count(difficulty: int) -> int:
+    if difficulty == 1:
+        return 1 if random.random() < 0.35 else 0
+    if difficulty == 2:
+        return 1 if random.random() < 0.5 else 0
+    if difficulty == 3:
+        return 1 + (1 if random.random() < 0.2 else 0)
+    return 1 + (1 if random.random() < 0.35 else 0)
 
 # Topology Generator
 def generate_topology(num_rooms: int) -> Dict[str, Room]:
@@ -79,12 +202,38 @@ def _get_opposite_direction(direction: Direction) -> Direction:
 
 # LLM Hooks
 async def generate_theme(llm_service) -> str:
+    if llm_service is None:
+        return random.choice(PROGRAMMATIC_THEMES)
+
     prompt = "Invent a unique, creative, and coherent dungeon theme/setting. Describe it in 1-2 sentences."
     theme = await llm_service.generate_text(prompt, system_prompt="You are a creative dungeon master.")
     return theme.strip()
 
 async def expand_room(room: Room, theme: str, llm_service, previous_room_desc: str | None = None):
     if room.is_generated:
+        return
+
+    if llm_service is None:
+        biome = _infer_biome(theme)
+        table = BIOME_TABLES[biome]
+        difficulty = _room_difficulty(room.id)
+        descriptor = random.choice(table["descriptors"])
+        feature = random.choice(table["features"])
+        context = "The air feels still." if not previous_room_desc else "A faint draft suggests nearby passages."
+        room.description = (
+            f"This {descriptor} chamber in {theme} contains {feature}. {context} "
+            f"Passages lead {', '.join(room.exits.keys()) if room.exits else 'nowhere obvious'}."
+        )
+
+        for _ in range(_roll_item_count(difficulty)):
+            item_name, item_type, item_desc = random.choice(table["items"])
+            room.items.append(Item(name=item_name, description=item_desc, type=item_type, is_generated=True))
+        for _ in range(_roll_enemy_count(difficulty)):
+            enemy_name, enemy_type, enemy_desc = random.choice(table["enemies"])
+            hp = random.randint(8, 12) + (difficulty * 2)
+            room.enemies.append(Enemy(name=enemy_name, description=enemy_desc, type=enemy_type, hp=hp, max_hp=hp, is_generated=True))
+
+        room.is_generated = True
         return
 
     # Create prompt

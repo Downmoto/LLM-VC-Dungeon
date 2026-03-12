@@ -3,4 +3,8 @@ uvicorn
 pydantic-settings
 langchain
 langchain-ollama
+langchain-openai
+langchain-google-genai
 langchain-community
+pytest
+pytest-asyncio

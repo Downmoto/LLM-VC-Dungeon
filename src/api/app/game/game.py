@@ -2,22 +2,24 @@ from typing import Dict, Any, Optional
 from fastapi import BackgroundTasks
 
 from app.services.llm import LLMService
+from app.core.config import settings
 from .models import GameState, Room, Direction
 from .storage import save_game, load_game
 from .generator import initial_generation, expand_room
+from .intent import classify_intent_programmatic
 
 class GameEngine:
     def __init__(self, save_path: str = "data/savegame.json"):
         self.save_path = save_path
         self.state: Optional[GameState] = None
 
-    async def get_state(self, llm_service: LLMService) -> GameState:
+    async def get_state(self, llm_service: Optional[LLMService]) -> GameState:
         if not self.state:
             await self.init_game(llm_service)
         assert self.state is not None  # guaranteed after init_game
         return self.state
 
-    async def init_game(self, llm_service: LLMService):
+    async def init_game(self, llm_service: Optional[LLMService]):
         try:
             # print(f"Loading game from {self.save_path}")
             self.state = load_game(self.save_path)
@@ -26,14 +28,24 @@ class GameEngine:
             self.state = await initial_generation(llm_service)
             save_game(self.state, self.save_path)
             
-    async def process_turn(self, user_input: str, llm_service: LLMService, background_tasks: Optional[BackgroundTasks] = None) -> tuple[str, dict]:
+    async def process_turn(self, user_input: str, llm_service: Optional[LLMService], background_tasks: Optional[BackgroundTasks] = None) -> tuple[str, dict]:
         if not self.state:
             await self.init_game(llm_service)
         
         assert self.state is not None  # guaranteed after init_game
             
-        # 1. Classify Intent
-        intent_data = await llm_service.classify_intent(user_input)
+        # 1. classify intent
+        mode = settings.GAME_MODE.lower()
+        if mode == "llm":
+            if llm_service is None:
+                raise RuntimeError("llm mode requires an initialized llm provider")
+            intent_data = await llm_service.classify_intent(user_input)
+        elif mode == "hybrid":
+            intent_data = classify_intent_programmatic(user_input)
+            if intent_data.get("action") == "unknown" and llm_service is not None:
+                intent_data = await llm_service.classify_intent(user_input)
+        else:
+            intent_data = classify_intent_programmatic(user_input)
         
         action_type = intent_data.get("action", "unknown").lower()
         result_text = ""
@@ -107,17 +119,18 @@ class GameEngine:
         else:
             result_text = "You do that, but nothing happens."
 
-        # Narrate via LLM
-        narrative_prompt = f"""
-        Theme: {self.state.theme}
-        Current Room: {current_room.description}
-        Player Action: {user_input}
-        Game Logic Result: {result_text}
-        
-        Task: Describe the outcome of the action narratively. Keep it concise (1-2 sentences).
-        """
-        
-        final_narrative = await llm_service.generate_text(narrative_prompt)
+        # 2. finalize output narrative
+        final_narrative = result_text
+        if settings.ENABLE_LLM_NARRATION and llm_service is not None:
+            narrative_prompt = f"""
+            Theme: {self.state.theme}
+            Current Room: {current_room.description}
+            Player Action: {user_input}
+            Game Logic Result: {result_text}
+            
+            Task: Describe the outcome of the action narratively. Keep it concise (1-2 sentences).
+            """
+            final_narrative = await llm_service.generate_text(narrative_prompt)
         
         assert self.state is not None  # guaranteed at this point
         self.state.history.append(f"Action: {user_input} | Result: {final_narrative}")
