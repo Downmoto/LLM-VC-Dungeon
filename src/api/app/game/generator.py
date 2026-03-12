@@ -1,6 +1,6 @@
 import random
 import json
-from typing import List, Dict, Tuple
+from typing import Any, List, Dict, Tuple
 from .models import Room, Direction, GameState, PlayerState, Item, Enemy, ItemType, EnemyType
 
 PROGRAMMATIC_THEMES = [
@@ -76,6 +76,82 @@ BIOME_TABLES = {
         ],
     },
 }
+
+AMBIENCE_TABLE = {
+    "mine": [
+        "A metallic tang hangs in the air.",
+        "Distant drips echo through the old shafts.",
+        "Loose pebbles crunch under each careful step.",
+    ],
+    "crypt": [
+        "Cold moisture beads on the stone walls.",
+        "Every sound returns as a restless whisper.",
+        "A funereal stillness presses in from every side.",
+    ],
+    "arcane": [
+        "Static prickles along your skin with each breath.",
+        "Faint runes pulse and fade in uneven rhythms.",
+        "The smell of ozone lingers over shattered glass.",
+    ],
+    "volcanic": [
+        "Heat ripples distort the edges of the room.",
+        "Ash settles in slow spirals across the floor.",
+        "A sulfurous haze clings to the back of your throat.",
+    ],
+}
+
+TRANSITION_TABLE = {
+    "mine": [
+        "A narrow side tunnel disappears into deeper dark.",
+        "Loose struts creak as if something shifted nearby.",
+        "A stale breeze carries grit from a distant shaft.",
+    ],
+    "crypt": [
+        "Thin rivulets of water thread between old burial stones.",
+        "Your footsteps stir dust that has slept for generations.",
+        "Somewhere beyond, a hollow knock echoes and then stops.",
+    ],
+    "arcane": [
+        "A faint hum rises and falls like a strained heartbeat.",
+        "Residual sparks skip between cracked metal fittings.",
+        "Old chalk marks underfoot suggest rushed experiments.",
+    ],
+    "volcanic": [
+        "Heat pulses from unseen vents beneath the floor.",
+        "Fine ash drifts down whenever the stone trembles.",
+        "A dull rumble lingers behind the walls.",
+    ],
+}
+
+ROOM_OPENERS = [
+    "You step into",
+    "You enter",
+    "Ahead lies",
+    "This passage opens into",
+]
+
+EXIT_LEADS = [
+    "Passages lead",
+    "Routes branch",
+    "Openings continue",
+    "Corridors stretch",
+]
+
+UNCERTAINTY_TAILS = [
+    "though the way ahead feels uncertain.",
+    "and each route seems to hide its own danger.",
+    "while distant sounds make every choice feel risky.",
+    "with silence giving no hint of what awaits.",
+]
+
+
+def _describe_exits(room: Room) -> str:
+    exits = list(room.exits.keys())
+    if not exits:
+        return "There are no visible exits."
+    if len(exits) == 1:
+        return f"{random.choice(EXIT_LEADS)} {exits[0]}, {random.choice(UNCERTAINTY_TAILS)}"
+    return f"{random.choice(EXIT_LEADS)} {', '.join(exits)}, {random.choice(UNCERTAINTY_TAILS)}"
 
 
 def _infer_biome(theme: str) -> str:
@@ -209,6 +285,150 @@ async def generate_theme(llm_service) -> str:
     theme = await llm_service.generate_text(prompt, system_prompt="You are a creative dungeon master.")
     return theme.strip()
 
+
+def _extract_json_object(text: str) -> dict[str, Any]:
+    clean_text = text.replace("```json", "").replace("```", "").strip()
+    start_idx = clean_text.find("{")
+    end_idx = clean_text.rfind("}")
+    if start_idx == -1 or end_idx == -1:
+        raise ValueError("no json object found in llm response")
+    clean_text = clean_text[start_idx:end_idx + 1]
+    data = json.loads(clean_text)
+    if not isinstance(data, dict):
+        raise ValueError("llm response json root must be an object")
+    return data
+
+
+def _to_item_type(raw_type: str | None) -> ItemType:
+    try:
+        return ItemType[(raw_type or "OTHER").upper()]
+    except Exception:
+        return ItemType.OTHER
+
+
+def _to_enemy_type(raw_type: str | None) -> EnemyType:
+    try:
+        return EnemyType[(raw_type or "OTHER").upper()]
+    except Exception:
+        return EnemyType.OTHER
+
+
+def _apply_room_payload(room: Room, room_payload: dict[str, Any], fallback_theme: str):
+    room.description = room_payload.get(
+        "description",
+        f"You are in {room.id}, a chamber of {fallback_theme}."
+    )
+
+    room.items = []
+    for item_data in room_payload.get("items", []):
+        if not isinstance(item_data, dict):
+            continue
+        name = str(item_data.get("name", "unknown item")).strip()
+        if not name:
+            name = "unknown item"
+        room.items.append(
+            Item(
+                name=name,
+                description=str(item_data.get("description", "")).strip(),
+                type=_to_item_type(item_data.get("type")),
+                is_generated=True,
+            )
+        )
+
+    room.enemies = []
+    for enemy_data in room_payload.get("enemies", []):
+        if not isinstance(enemy_data, dict):
+            continue
+        name = str(enemy_data.get("name", "unknown foe")).strip()
+        if not name:
+            name = "unknown foe"
+        hp = enemy_data.get("hp", 10)
+        try:
+            hp = max(1, int(hp))
+        except Exception:
+            hp = 10
+        room.enemies.append(
+            Enemy(
+                name=name,
+                description=str(enemy_data.get("description", "")).strip(),
+                type=_to_enemy_type(enemy_data.get("type")),
+                hp=hp,
+                max_hp=hp,
+                is_generated=True,
+            )
+        )
+
+    room.is_generated = True
+
+
+async def generate_full_dungeon_single_call(rooms: Dict[str, Room], llm_service) -> str:
+    room_skeleton = [
+        {
+            "id": room.id,
+            "exits": room.exits,
+        }
+        for room in rooms.values()
+    ]
+
+    prompt = f"""
+    Generate a complete dungeon payload as valid JSON only.
+
+    Requirements:
+    - Create one coherent dungeon theme.
+    - Fill content for every room listed below.
+    - Keep room exits exactly as provided.
+        - Make each room description meaningfully distinct from the others.
+        - Vary sentence openings, sensory details, and points of interest across rooms.
+    - For each room provide:
+      - description (2-3 sentences)
+      - items (0-2 entries)
+      - enemies (0-1 entries)
+
+    Allowed item types: WEAPON, POTION, ARMOR, KEY, TREASURE, OTHER
+    Allowed enemy types: BEAST, UNDEAD, HUMANOID, CONSTRUCT, DEMON, OTHER
+
+    Room skeleton:
+    {json.dumps(room_skeleton, indent=2)}
+
+    Output format:
+    {{
+      "theme": "...",
+      "rooms": [
+        {{
+          "id": "room_0",
+          "description": "...",
+          "items": [{{"name": "...", "type": "...", "description": "..."}}],
+          "enemies": [{{"name": "...", "type": "...", "description": "...", "hp": 10}}]
+        }}
+      ]
+    }}
+    """
+
+    response_text = await llm_service.generate_text(
+        prompt,
+        system_prompt="You are a dungeon generator. Output valid JSON only.",
+    )
+    data = _extract_json_object(response_text)
+
+    theme = str(data.get("theme", "")).strip() or random.choice(PROGRAMMATIC_THEMES)
+    rooms_payload = data.get("rooms", [])
+    if not isinstance(rooms_payload, list):
+        raise ValueError("rooms payload must be a list")
+
+    payload_by_id: dict[str, dict[str, Any]] = {}
+    for room_data in rooms_payload:
+        if not isinstance(room_data, dict):
+            continue
+        room_id = str(room_data.get("id", "")).strip()
+        if room_id:
+            payload_by_id[room_id] = room_data
+
+    for room_id, room in rooms.items():
+        room_payload = payload_by_id.get(room_id, {})
+        _apply_room_payload(room, room_payload, theme)
+
+    return theme
+
 async def expand_room(room: Room, theme: str, llm_service, previous_room_desc: str | None = None):
     if room.is_generated:
         return
@@ -219,11 +439,15 @@ async def expand_room(room: Room, theme: str, llm_service, previous_room_desc: s
         difficulty = _room_difficulty(room.id)
         descriptor = random.choice(table["descriptors"])
         feature = random.choice(table["features"])
-        context = "The air feels still." if not previous_room_desc else "A faint draft suggests nearby passages."
-        room.description = (
-            f"This {descriptor} chamber in {theme} contains {feature}. {context} "
-            f"Passages lead {', '.join(room.exits.keys()) if room.exits else 'nowhere obvious'}."
-        )
+        ambience = random.choice(AMBIENCE_TABLE[biome])
+        transition = random.choice(TRANSITION_TABLE[biome])
+        opener = random.choice(ROOM_OPENERS)
+        first_sentence = f"{opener} a {descriptor} chamber in {theme}, marked by {feature}."
+        if previous_room_desc:
+            second_sentence = f"{ambience} {transition}"
+        else:
+            second_sentence = f"{ambience} The first impression is unsettling and immediate."
+        room.description = f"{first_sentence} {second_sentence} {_describe_exits(room)}"
 
         for _ in range(_roll_item_count(difficulty)):
             item_name, item_type, item_desc = random.choice(table["items"])
@@ -245,6 +469,8 @@ async def expand_room(room: Room, theme: str, llm_service, previous_room_desc: s
     
     Task:
     1. Write a vivid, atmospheric description of this room (2-3 sentences).
+         - avoid reusing exact phrasing from previous room context.
+         - include at least one distinct sensory detail that is unique in wording.
     2. List 0-2 items found here (name, type).
     3. List 0-1 enemies found here (name, type).
     
@@ -259,28 +485,20 @@ async def expand_room(room: Room, theme: str, llm_service, previous_room_desc: s
     try:
         response_text = await llm_service.generate_text(prompt, system_prompt="You are a dungeon generator. Output valid JSON only.")
         
-        # clean code blocks if present
-        clean_text = response_text.replace("```json", "").replace("```", "").strip()
-        # Find first { and last }
-        start_idx = clean_text.find("{")
-        end_idx = clean_text.rfind("}")
-        if start_idx != -1 and end_idx != -1:
-            clean_text = clean_text[start_idx:end_idx+1]
-            
-        data = json.loads(clean_text)
+        data = _extract_json_object(response_text)
         
         room.description = data.get("description", "A dark, unexplained room.")
         
         for item_data in data.get("items", []):
             try:
-                itype = ItemType[item_data.get("type", "OTHER").upper()]
+                itype = _to_item_type(item_data.get("type"))
             except:
                 itype = ItemType.OTHER
             room.items.append(Item(name=item_data["name"], description=item_data.get("description", ""), type=itype, is_generated=True))
             
         for enemy_data in data.get("enemies", []):
             try:
-                etype = EnemyType[enemy_data.get("type", "OTHER").upper()]
+                etype = _to_enemy_type(enemy_data.get("type"))
             except:
                 etype = EnemyType.OTHER
             room.enemies.append(Enemy(name=enemy_data["name"], description=enemy_data.get("description", ""), type=etype, is_generated=True))
@@ -294,7 +512,18 @@ async def expand_room(room: Room, theme: str, llm_service, previous_room_desc: s
 
 async def initial_generation(llm_service) -> GameState:
     rooms = generate_topology(num_rooms=10)
-    theme = await generate_theme(llm_service)
+    if llm_service is not None:
+        try:
+            theme = await generate_full_dungeon_single_call(rooms, llm_service)
+        except Exception as e:
+            print(f"Error in single-call dungeon generation: {e}")
+            theme = await generate_theme(None)
+            for room in rooms.values():
+                await expand_room(room, theme, None)
+    else:
+        theme = await generate_theme(None)
+        for room in rooms.values():
+            await expand_room(room, theme, None)
     
     start_room_id = "room_0"
     player = PlayerState(current_room_id=start_room_id)
@@ -306,13 +535,4 @@ async def initial_generation(llm_service) -> GameState:
         history=[f"Welcome to the dungeon. Theme: {theme}"]
     )
     
-    # Expand start room
-    start_room = rooms[start_room_id]
-    await expand_room(start_room, theme, llm_service)
-    
-    # Expand neighbors of start room (eagerly)
-    for exit_dir, neighbor_id in start_room.exits.items():
-        neighbor = rooms[neighbor_id]
-        await expand_room(neighbor, theme, llm_service, previous_room_desc=start_room.description)
-        
     return game_state

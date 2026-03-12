@@ -67,6 +67,22 @@ async def test_process_turn_take_item(game_engine_with_state):
 
 
 @pytest.mark.asyncio
+async def test_process_turn_take_item_with_conversational_input(game_engine_with_state):
+    old_mode = settings.GAME_MODE
+    settings.GAME_MODE = "programmatic"
+
+    try:
+        narrative, action = await game_engine_with_state.process_turn("i grab the iron key", None)
+    finally:
+        settings.GAME_MODE = old_mode
+
+    assert action["action"] == "take"
+    assert "you took the iron key" in narrative.lower()
+    assert len(game_engine_with_state.state.player.inventory) == 1
+    assert game_engine_with_state.state.player.inventory[0].name == "iron key"
+
+
+@pytest.mark.asyncio
 async def test_process_turn_attack_enemy(game_engine_with_state):
     old_mode = settings.GAME_MODE
     settings.GAME_MODE = "programmatic"
@@ -80,3 +96,83 @@ async def test_process_turn_attack_enemy(game_engine_with_state):
     assert "you defeated the cave rat" in narrative.lower()
     current_room = game_engine_with_state.state.rooms["room_0"]
     assert len(current_room.enemies) == 0
+
+
+class _FailingLLMService:
+    async def classify_intent(self, user_input: str):
+        raise RuntimeError("429 RESOURCE_EXHAUSTED. Please retry in 48.3s")
+
+
+class _TrackingLLMService:
+    def __init__(self):
+        self.calls = 0
+
+    async def classify_intent(self, user_input: str):
+        self.calls += 1
+        return {"action": "look"}
+
+
+class _NarrationEchoLLMService:
+    def __init__(self):
+        self.last_prompt = ""
+
+    async def generate_text(self, prompt: str, system_prompt: str | None = None):
+        self.last_prompt = prompt
+        return "you move north. you are in the northern room"
+
+
+@pytest.mark.asyncio
+async def test_process_turn_llm_quota_falls_back_to_programmatic(game_engine_with_state):
+    old_mode = settings.GAME_MODE
+    old_narration = settings.ENABLE_LLM_NARRATION
+    settings.GAME_MODE = "llm"
+    settings.ENABLE_LLM_NARRATION = False
+
+    try:
+        narrative, action = await game_engine_with_state.process_turn("go north", _FailingLLMService())
+    finally:
+        settings.GAME_MODE = old_mode
+        settings.ENABLE_LLM_NARRATION = old_narration
+
+    assert action["action"] == "move"
+    assert game_engine_with_state.state.player.current_room_id == "room_1"
+    assert "you move north" in narrative.lower()
+
+
+@pytest.mark.asyncio
+async def test_process_turn_llm_short_circuits_known_programmatic_intent(game_engine_with_state):
+    old_mode = settings.GAME_MODE
+    old_narration = settings.ENABLE_LLM_NARRATION
+    settings.GAME_MODE = "llm"
+    settings.ENABLE_LLM_NARRATION = False
+
+    tracking_llm = _TrackingLLMService()
+    try:
+        narrative, action = await game_engine_with_state.process_turn("where am i", tracking_llm)
+    finally:
+        settings.GAME_MODE = old_mode
+        settings.ENABLE_LLM_NARRATION = old_narration
+
+    assert action["action"] == "look"
+    assert tracking_llm.calls == 0
+    assert "entry room" in narrative.lower()
+
+
+@pytest.mark.asyncio
+async def test_move_narration_uses_destination_room_context_and_boosts_copy(game_engine_with_state):
+    old_mode = settings.GAME_MODE
+    old_narration = settings.ENABLE_LLM_NARRATION
+    settings.GAME_MODE = "programmatic"
+    settings.ENABLE_LLM_NARRATION = True
+
+    llm = _NarrationEchoLLMService()
+    try:
+        narrative, action = await game_engine_with_state.process_turn("go north", llm)
+    finally:
+        settings.GAME_MODE = old_mode
+        settings.ENABLE_LLM_NARRATION = old_narration
+
+    assert action["action"] == "move"
+    assert "current room snapshot: you are in the northern room" in llm.last_prompt.lower()
+    assert "resolved action type: move" in llm.last_prompt.lower()
+    assert "faint echo from beyond the nearest passage" in narrative.lower()

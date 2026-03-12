@@ -1,4 +1,7 @@
-from typing import Dict, Any, Optional
+import re
+import time
+import asyncio
+from typing import Optional
 from fastapi import BackgroundTasks
 
 from app.services.llm import LLMService
@@ -12,6 +15,7 @@ class GameEngine:
     def __init__(self, save_path: str = "data/savegame.json"):
         self.save_path = save_path
         self.state: Optional[GameState] = None
+        self._llm_disabled_until: float = 0.0
 
     async def get_state(self, llm_service: Optional[LLMService]) -> GameState:
         if not self.state:
@@ -25,8 +29,118 @@ class GameEngine:
             self.state = load_game(self.save_path)
         except Exception:
             # print("Save not found, generating new game...")
-            self.state = await initial_generation(llm_service)
+            try:
+                self.state = await initial_generation(llm_service)
+            except Exception as exc:
+                if llm_service is None:
+                    raise
+                self._mark_llm_temporarily_unavailable(exc)
+                self.state = await initial_generation(None)
             save_game(self.state, self.save_path)
+
+    def _llm_available(self, llm_service: Optional[LLMService]) -> bool:
+        return llm_service is not None and time.time() >= self._llm_disabled_until
+
+    def _mark_llm_temporarily_unavailable(self, error: Exception):
+        message = str(error)
+        delay_seconds = 60.0
+
+        match = re.search(r"retry in\s+([0-9]+(?:\.[0-9]+)?)s", message, flags=re.IGNORECASE)
+        if not match:
+            match = re.search(r"'retryDelay'\s*:\s*'([0-9]+)s'", message)
+        if match:
+            delay_seconds = max(delay_seconds, float(match.group(1)))
+
+        if "429" in message or "resource_exhausted" in message.lower() or "quota" in message.lower():
+            self._llm_disabled_until = max(self._llm_disabled_until, time.time() + delay_seconds)
+
+    def _normalize_for_compare(self, text: str) -> str:
+        lowered = text.lower()
+        alnum_spaced = re.sub(r"[^a-z0-9\s]", " ", lowered)
+        return re.sub(r"\s+", " ", alnum_spaced).strip()
+
+    def _narrative_needs_boost(self, candidate: str, logic_result: str, room_description: str) -> bool:
+        candidate_n = self._normalize_for_compare(candidate)
+        logic_n = self._normalize_for_compare(logic_result)
+        room_n = self._normalize_for_compare(room_description)
+        if not candidate_n:
+            return True
+        if candidate_n == logic_n or candidate_n == room_n:
+            return True
+        if logic_n and candidate_n.startswith(logic_n) and len(candidate_n) <= len(logic_n) + 24:
+            return True
+        return False
+
+    def _boost_narrative(self, base_text: str, room: Room) -> str:
+        additions = [
+            "A tense hush settles in as you reassess the chamber.",
+            "The dungeon answers with a faint echo from beyond the nearest passage.",
+            "For a breath, the room feels alive with small, unsettling movement.",
+        ]
+        seed = sum(ord(ch) for ch in room.id) % len(additions)
+        boost = additions[seed]
+        clean_base = base_text.strip()
+        if clean_base.endswith((".", "!", "?")):
+            return f"{clean_base} {boost}"
+        return f"{clean_base}. {boost}"
+
+    def _build_narration_prompt(
+        self,
+        theme: str,
+        room_description: str,
+        user_action: str,
+        logic_result: str,
+        action_type: str,
+    ) -> str:
+        return f"""
+            Theme: {theme}
+            Current Room Snapshot: {room_description}
+            Player Action: {user_action}
+            Resolved Action Type: {action_type}
+            Game Logic Facts: {logic_result}
+
+            Task: Write 2-4 sentences of narrative prose about this single turn.
+            Constraints:
+            - preserve the concrete facts in Game Logic Facts.
+            - do not copy any full sentence verbatim from Current Room Snapshot or Game Logic Facts.
+            - add at least one fresh sensory or atmospheric detail not present in those inputs.
+            - keep the response focused on this exact turn only.
+            """
+
+    async def _classify_with_llm_timeout(self, user_input: str, llm_service: LLMService) -> dict:
+        timeout_seconds = max(1.0, float(settings.LLM_TIMEOUT_SECONDS))
+        return await asyncio.wait_for(
+            llm_service.classify_intent(user_input),
+            timeout=timeout_seconds,
+        )
+
+    async def _classify_with_fallback(self, user_input: str, llm_service: Optional[LLMService]) -> dict:
+        mode = settings.GAME_MODE.lower()
+        programmatic_intent = classify_intent_programmatic(user_input)
+
+        if mode == "llm":
+            if programmatic_intent.get("action") != "unknown":
+                return programmatic_intent
+            if not self._llm_available(llm_service):
+                return programmatic_intent
+            try:
+                assert llm_service is not None
+                return await self._classify_with_llm_timeout(user_input, llm_service)
+            except Exception as exc:
+                self._mark_llm_temporarily_unavailable(exc)
+                return programmatic_intent
+
+        if mode == "hybrid":
+            intent_data = programmatic_intent
+            if intent_data.get("action") == "unknown" and self._llm_available(llm_service):
+                try:
+                    assert llm_service is not None
+                    return await self._classify_with_llm_timeout(user_input, llm_service)
+                except Exception as exc:
+                    self._mark_llm_temporarily_unavailable(exc)
+            return intent_data
+
+        return programmatic_intent
             
     async def process_turn(self, user_input: str, llm_service: Optional[LLMService], background_tasks: Optional[BackgroundTasks] = None) -> tuple[str, dict]:
         if not self.state:
@@ -35,22 +149,13 @@ class GameEngine:
         assert self.state is not None  # guaranteed after init_game
             
         # 1. classify intent
-        mode = settings.GAME_MODE.lower()
-        if mode == "llm":
-            if llm_service is None:
-                raise RuntimeError("llm mode requires an initialized llm provider")
-            intent_data = await llm_service.classify_intent(user_input)
-        elif mode == "hybrid":
-            intent_data = classify_intent_programmatic(user_input)
-            if intent_data.get("action") == "unknown" and llm_service is not None:
-                intent_data = await llm_service.classify_intent(user_input)
-        else:
-            intent_data = classify_intent_programmatic(user_input)
+        intent_data = await self._classify_with_fallback(user_input, llm_service)
         
         action_type = intent_data.get("action", "unknown").lower()
         result_text = ""
         
         current_room = self.state.rooms[self.state.player.current_room_id]
+        narrative_room = current_room
         
         if action_type == "move":
             direction = intent_data.get("direction", intent_data.get("target", "")).lower()
@@ -63,16 +168,18 @@ class GameEngine:
                 
                 # Trigger generation for neighbors
                 if background_tasks:
+                     generation_llm = llm_service if self._llm_available(llm_service) else None
                      for _, neighbor_id in new_room.exits.items():
                          neighbor = self.state.rooms[neighbor_id]
                          if not neighbor.is_generated:
-                             background_tasks.add_task(expand_room, neighbor, self.state.theme, llm_service, new_room.description)
+                             background_tasks.add_task(expand_room, neighbor, self.state.theme, generation_llm, new_room.description)
 
                 result_text += new_room.description
                 if new_room.enemies:
                     result_text += " " + " ".join([f"There is a {e.name} here." for e in new_room.enemies])
                 if new_room.items:
                     result_text += " " + " ".join([f"You see a {i.name}." for i in new_room.items])
+                narrative_room = new_room
                     
             else:
                 result_text = f"You cannot go {direction}."
@@ -121,16 +228,23 @@ class GameEngine:
 
         # 2. finalize output narrative
         final_narrative = result_text
-        if settings.ENABLE_LLM_NARRATION and llm_service is not None:
-            narrative_prompt = f"""
-            Theme: {self.state.theme}
-            Current Room: {current_room.description}
-            Player Action: {user_input}
-            Game Logic Result: {result_text}
-            
-            Task: Describe the outcome of the action narratively. Keep it concise (1-2 sentences).
-            """
-            final_narrative = await llm_service.generate_text(narrative_prompt)
+        if settings.ENABLE_LLM_NARRATION and self._llm_available(llm_service):
+            narrative_prompt = self._build_narration_prompt(
+                theme=self.state.theme,
+                room_description=narrative_room.description,
+                user_action=user_input,
+                logic_result=result_text,
+                action_type=action_type,
+            )
+            try:
+                assert llm_service is not None
+                llm_narrative = await llm_service.generate_text(narrative_prompt)
+                final_narrative = llm_narrative.strip() or result_text
+                if self._narrative_needs_boost(final_narrative, result_text, narrative_room.description):
+                    final_narrative = self._boost_narrative(result_text, narrative_room)
+            except Exception as exc:
+                self._mark_llm_temporarily_unavailable(exc)
+                final_narrative = result_text
         
         assert self.state is not None  # guaranteed at this point
         self.state.history.append(f"Action: {user_input} | Result: {final_narrative}")

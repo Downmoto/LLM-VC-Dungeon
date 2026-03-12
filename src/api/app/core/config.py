@@ -11,21 +11,22 @@ class Settings(BaseSettings):
     OLLAMA_CLASSIFY_MODEL: str = "qwen3:8b" # pre tool calling update, use the same model for both gen and classify
 
     # llm provider configuration
-    LLM_PROVIDER: str = "ollama"  # ollama|openai|google
+    LLM_PROVIDER: str = "google"  # ollama|openai|google
     OPENAI_API_KEY: str = ""
     OPENAI_BASE_URL: str = ""
     OPENAI_GEN_MODEL: str = "gpt-4o-mini"
     OPENAI_CLASSIFY_MODEL: str = "gpt-4o-mini"
     GOOGLE_API_KEY: str = "AIzaSyA74HajsvWgPXeROsnmRApYDcuxrFwe1bg"
-    GOOGLE_GEN_MODEL: str = "gemini-2.0-flash"
-    GOOGLE_CLASSIFY_MODEL: str = "gemini-2.0-flash"
+    GOOGLE_GEN_MODEL: str = "gemini-3-flash-preview"
+    GOOGLE_CLASSIFY_MODEL: str = "gemini-3-flash-preview"
     
     # agent configuration
     AGENT_TEMPERATURE: float = 0.7
     AGENT_MAX_ITERATIONS: int = 10
+    LLM_TIMEOUT_SECONDS: float = 12.0
 
     # game runtime configuration
-    GAME_MODE: str = "programmatic"  # programmatic|hybrid|llm
+    GAME_MODE: str = "llm"  # programmatic|hybrid|llm
     ENABLE_LLM_NARRATION: bool = False
 
     class Config:

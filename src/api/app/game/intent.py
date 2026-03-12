@@ -36,6 +36,7 @@ LOOK_VERBS = {
     "inspect",
     "search",
     "observe",
+    "where",
 }
 
 TAKE_VERBS = {
@@ -66,6 +67,17 @@ INVENTORY_WORDS = {
 }
 
 STOPWORDS = {
+    "i",
+    "im",
+    "me",
+    "please",
+    "can",
+    "could",
+    "would",
+    "will",
+    "just",
+    "wanna",
+    "want",
     "the",
     "a",
     "an",
@@ -125,6 +137,10 @@ def classify_intent_programmatic(user_input: str) -> Dict[str, str]:
 
     if token_set & INVENTORY_WORDS:
         return {"action": "inventory"}
+
+    # common location query shorthand, e.g. "where am i"
+    if "where" in token_set and "am" in token_set and "i" in token_set:
+        return {"action": "look"}
 
     if token_set & LOOK_VERBS:
         return {"action": "look"}
