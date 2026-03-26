@@ -581,6 +581,8 @@ async def initial_generation(llm_service, strict_llm: bool = False) -> GameState
             await expand_room(room, theme, None, strict_llm=False)
     
     start_room_id = "room_0"
+    if start_room_id in rooms:
+        rooms[start_room_id].is_visited = True
     player = PlayerState(current_room_id=start_room_id)
     
     game_state = GameState(

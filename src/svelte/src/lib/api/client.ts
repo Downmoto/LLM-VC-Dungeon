@@ -36,9 +36,17 @@ export interface GameTurnRequest {
   user_input: string;
 }
 
+export interface GameTurnAction {
+  action?: string;
+  target?: string;
+  direction?: string;
+  game_over?: boolean;
+  [key: string]: any;
+}
+
 export interface GameTurnResponse {
   narrative: string;
-  action?: Record<string, any>;
+  action?: GameTurnAction;
 }
 
 export interface NewGameRequest {
@@ -49,6 +57,16 @@ export interface NewGameResponse {
   message: string;
   game_id: string;
   initial_room: string;
+}
+
+export interface LoadGameRequest {
+  save_path?: string;
+}
+
+export interface LoadGameResponse {
+  message: string;
+  game_id: string;
+  current_room: string;
 }
 
 export interface MapRoomResponse {
@@ -81,14 +99,18 @@ async function apiFetch<T>(
   options?: RequestInit
 ): Promise<T> {
   const url = `${API_BASE_URL}${endpoint}`;
+  const hasBody = options?.body !== undefined && options?.body !== null;
+  const mergedHeaders: Record<string, string> = {
+    ...(options?.headers as Record<string, string> | undefined),
+  };
+  if (hasBody && !mergedHeaders['Content-Type']) {
+    mergedHeaders['Content-Type'] = 'application/json';
+  }
   
   try {
     const response = await fetch(url, {
       ...options,
-      headers: {
-        'Content-Type': 'application/json',
-        ...options?.headers,
-      },
+      headers: mergedHeaders,
     });
 
     if (!response.ok) {
@@ -139,6 +161,13 @@ export const apiClient = {
   // start a new game
   async newGame(request: NewGameRequest = {}): Promise<NewGameResponse> {
     return apiFetch<NewGameResponse>('/api/new-game', {
+      method: 'POST',
+      body: JSON.stringify(request),
+    });
+  },
+
+  async loadGame(request: LoadGameRequest = {}): Promise<LoadGameResponse> {
+    return apiFetch<LoadGameResponse>('/api/load-game', {
       method: 'POST',
       body: JSON.stringify(request),
     });

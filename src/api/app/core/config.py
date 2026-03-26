@@ -18,7 +18,7 @@ class Settings(BaseSettings):
     OPENAI_CLASSIFY_MODEL: str = "gpt-4o-mini"
     GOOGLE_API_KEY: str = ""
     GOOGLE_GEN_MODEL: str = "gemini-3.1-pro-preview"
-    GOOGLE_CLASSIFY_MODEL: str = "gemini-3.1-pro-preview"
+    GOOGLE_CLASSIFY_MODEL: str = "gemini-1.5-flash"
     
     # agent configuration
     AGENT_TEMPERATURE: float = 0.7
@@ -28,6 +28,10 @@ class Settings(BaseSettings):
     # game runtime configuration
     GAME_MODE: str = "llm"  # programmatic|hybrid|llm
     ENABLE_LLM_NARRATION: bool = False
+    ALLOWED_ORIGINS: str = "http://localhost:3000,http://localhost:5173,http://localhost:4173"
+    CORS_ALLOW_ORIGIN_REGEX: str = r"^https?://(localhost|127\.0\.0\.1|0\.0\.0\.0)(:\d+)?$"
+    HISTORY_RECENT_TURNS: int = 8
+    HISTORY_SUMMARY_MAX_CHARS: int = 700
 
     class Config:
         env_file = ".env"

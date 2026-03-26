@@ -2,6 +2,7 @@ from fastapi import FastAPI, HTTPException, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional, Any
+import os
 from app.core.config import settings
 from app.game.game import GameEngine
 from app.game.intent import classify_intent_programmatic
@@ -77,10 +78,14 @@ app = FastAPI(
     version="0.1.0"
 )
 
+allowed_origins = [origin.strip() for origin in settings.ALLOWED_ORIGINS.split(",") if origin.strip()]
+origin_regex = settings.CORS_ALLOW_ORIGIN_REGEX.strip() or None
+
 # cors middleware for svelte frontend
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://localhost:4173"],  # svelte dev and preview
+    allow_origins=allowed_origins,
+    allow_origin_regex=origin_regex,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -142,7 +147,11 @@ async def classify_intent(request: ClassifyIntentRequest):
     confidence = 0.9 if intent.get("action") != "unknown" else 0.25
 
     if mode in {"llm", "hybrid"} and llm_provider is not None:
-        llm_intent = await llm_provider.classify_intent(request.user_input)
+        history_context = game_engine.history_context()
+        try:
+            llm_intent = await llm_provider.classify_intent(request.user_input, history_context=history_context)
+        except TypeError:
+            llm_intent = await llm_provider.classify_intent(request.user_input)
         if mode == "llm" or intent.get("action") == "unknown":
             intent = llm_intent
             confidence = 0.95 if intent.get("action") != "unknown" else 0.3
@@ -197,6 +206,8 @@ async def load_game_endpoint(request: LoadGameRequest):
     
     try:
         save_path = request.save_path or "data/savegame.json"
+        if not os.path.isfile(save_path):
+            raise HTTPException(status_code=404, detail=f"save file not found: {save_path}")
         loaded_game_engine = GameEngine(save_path)
         
         # load existing game state
@@ -215,6 +226,8 @@ async def load_game_endpoint(request: LoadGameRequest):
             game_id=state.player.current_room_id,
             current_room=current_room.description
         )
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"failed to load game: {str(e)}")
 
@@ -229,7 +242,8 @@ async def process_game_turn(request: GameTurnRequest, background_tasks: Backgrou
         (narrative, action) = await game_engine.process_turn(request.user_input, llm_provider, background_tasks)
         return GameTurnResponse(narrative=narrative, action=action)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"game turn failed: {str(e)}")
+        error_message = str(e).strip() or repr(e)
+        raise HTTPException(status_code=500, detail=f"game turn failed: {error_message}")
 
 
 @app.get("/api/game/map", response_model=GameMapResponse)

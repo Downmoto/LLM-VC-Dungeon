@@ -1,6 +1,7 @@
 import re
 import time
 import asyncio
+import random
 from typing import Optional
 from fastapi import BackgroundTasks
 
@@ -64,6 +65,12 @@ class GameEngine:
         if "429" in message or "resource_exhausted" in message.lower() or "quota" in message.lower():
             self._llm_disabled_until = max(self._llm_disabled_until, time.time() + delay_seconds)
 
+    def _error_text(self, error: Exception) -> str:
+        message = str(error).strip()
+        if message:
+            return message
+        return f"{error.__class__.__name__} (empty error message)"
+
     def _normalize_for_compare(self, text: str) -> str:
         lowered = text.lower()
         alnum_spaced = re.sub(r"[^a-z0-9\s]", " ", lowered)
@@ -103,23 +110,30 @@ class GameEngine:
         action_type: str,
         available_exits: list[str],
         visible_items: list[str],
+        visible_enemies: list[str],
+        history_context: str,
     ) -> str:
         exits_text = ", ".join(available_exits) if available_exits else "none"
         items_text = ", ".join(visible_items) if visible_items else "none"
+        enemies_text = ", ".join(visible_enemies) if visible_enemies else "none"
         return f"""
             Theme: {theme}
+            Recent Adventure Context:
+            {history_context}
             Current Room Snapshot: {room_description}
             Player Action: {user_action}
             Resolved Action Type: {action_type}
             Game Logic Facts: {logic_result}
             Available Exits: {exits_text}
             Visible Items: {items_text}
+            Visible Enemies: {enemies_text}
 
             Task: Write 2-4 sentences of narrative prose about this single turn.
             Constraints:
             - preserve the concrete facts in Game Logic Facts.
             - do not copy any full sentence verbatim from Current Room Snapshot or Game Logic Facts.
             - add at least one fresh sensory or atmospheric detail not present in those inputs.
+            - if Visible Enemies is not "none", mention at least one enemy by name in the prose.
             - keep the response focused on this exact turn only.
             - after the prose, append exactly these two lines in plain text:
               Directions: <comma-separated exits or "none">
@@ -127,33 +141,90 @@ class GameEngine:
             - the Directions and Items lines must match Available Exits and Visible Items exactly.
             """
 
-    async def _classify_with_llm_timeout(self, user_input: str, llm_service: LLMService) -> dict:
+    def _history_context(self) -> str:
+        assert self.state is not None
+        recent_count = max(1, int(settings.HISTORY_RECENT_TURNS))
+        recent_turns = [entry for entry in self.state.history if entry.startswith("Action:")][-recent_count:]
+        summary = (self.state.history_summary or "").strip()
+
+        if not recent_turns and not summary:
+            return "No prior turns yet."
+
+        lines: list[str] = []
+        if summary:
+            lines.append(f"Summary: {summary}")
+        if recent_turns:
+            lines.append("Recent turns:")
+            lines.extend(recent_turns)
+        return "\n".join(lines)
+
+    def _refresh_history_summary(self):
+        assert self.state is not None
+        summary_limit = max(120, int(settings.HISTORY_SUMMARY_MAX_CHARS))
+        recent_count = max(1, int(settings.HISTORY_RECENT_TURNS))
+        action_entries = [entry for entry in self.state.history if entry.startswith("Action:")]
+
+        if not action_entries:
+            return
+
+        collapsed = " | ".join(action_entries[:-recent_count]) if len(action_entries) > recent_count else ""
+        if not collapsed:
+            return
+
+        if len(collapsed) <= summary_limit:
+            self.state.history_summary = collapsed
+            return
+
+        self.state.history_summary = collapsed[-summary_limit:]
+
+    def history_context(self) -> str:
+        if not self.state:
+            return "No prior turns yet."
+        return self._history_context()
+
+    async def _classify_with_llm_timeout(self, user_input: str, history_context: str, llm_service: LLMService) -> dict:
         timeout_seconds = max(1.0, float(settings.LLM_TIMEOUT_SECONDS))
+        classify_method = llm_service.classify_intent
+
+        try:
+            classify_coro = classify_method(user_input, history_context=history_context)
+        except TypeError:
+            classify_coro = classify_method(user_input)
+
         return await asyncio.wait_for(
-            llm_service.classify_intent(user_input),
+            classify_coro,
             timeout=timeout_seconds,
         )
 
     async def _classify_with_fallback(self, user_input: str, llm_service: Optional[LLMService]) -> dict:
         mode = settings.GAME_MODE.lower()
         programmatic_intent = classify_intent_programmatic(user_input)
+        history_context = self._history_context() if self.state else "No prior turns yet."
 
         if mode == "llm":
             if not self._llm_available(llm_service):
                 raise RuntimeError("llm intent classification unavailable while GAME_MODE=llm")
             try:
                 assert llm_service is not None
-                return await self._classify_with_llm_timeout(user_input, llm_service)
+                intent_data = await self._classify_with_llm_timeout(user_input, history_context, llm_service)
+                if intent_data.get("action") == "unknown":
+                    return programmatic_intent
+                return intent_data
             except Exception as exc:
                 self._mark_llm_temporarily_unavailable(exc)
-                raise RuntimeError(f"llm intent classification failed while GAME_MODE=llm: {exc}") from exc
+                raise RuntimeError(
+                    "llm intent classification failed while GAME_MODE=llm: "
+                    f"{self._error_text(exc)}"
+                ) from exc
 
         if mode == "hybrid":
             intent_data = programmatic_intent
             if intent_data.get("action") == "unknown" and self._llm_available(llm_service):
                 try:
                     assert llm_service is not None
-                    return await self._classify_with_llm_timeout(user_input, llm_service)
+                    llm_intent = await self._classify_with_llm_timeout(user_input, history_context, llm_service)
+                    if llm_intent.get("action") != "unknown":
+                        return llm_intent
                 except Exception as exc:
                     self._mark_llm_temporarily_unavailable(exc)
             return intent_data
@@ -181,6 +252,8 @@ class GameEngine:
                 new_room_id = current_room.exits[direction]
                 self.state.player.current_room_id = new_room_id
                 new_room = self.state.rooms[new_room_id]
+                already_visited = new_room.is_visited
+                new_room.is_visited = True
                 
                 result_text = f"You move {direction}. "
                 
@@ -204,7 +277,10 @@ class GameEngine:
                                  strict_llm,
                              )
 
-                result_text += new_room.description
+                if already_visited:
+                    result_text += f"You return to {new_room.id}. {new_room.description}"
+                else:
+                    result_text += new_room.description
                 if new_room.enemies:
                     result_text += " " + " ".join([f"There is a {e.name} here." for e in new_room.enemies])
                 if new_room.items:
@@ -240,8 +316,23 @@ class GameEngine:
             found = False
             for enemy in current_room.enemies:
                 if target in enemy.name.lower():
-                    current_room.enemies.remove(enemy)
-                    result_text = f"You defeated the {enemy.name}!"
+                    if enemy.max_hp <= 10:
+                        damage = enemy.hp
+                    else:
+                        damage = random.randint(4, 12)
+                    enemy.hp = max(0, enemy.hp - damage)
+
+                    if enemy.hp <= 0:
+                        current_room.enemies.remove(enemy)
+                        result_text = f"You defeated the {enemy.name}! You strike it for {damage} damage."
+                    else:
+                        retaliation = random.randint(2, 8)
+                        self.state.player.hp = max(0, self.state.player.hp - retaliation)
+                        result_text = (
+                            f"You strike the {enemy.name} for {damage} damage. "
+                            f"It retaliates for {retaliation} damage. "
+                            f"Your hp is now {self.state.player.hp}/{self.state.player.max_hp}."
+                        )
                     found = True
                     break
             if not found:
@@ -260,8 +351,14 @@ class GameEngine:
         mode = settings.GAME_MODE.lower()
         strict_llm = mode == "llm"
         final_narrative = result_text
+        player_defeated = self.state.player.hp <= 0
+        if player_defeated:
+            final_narrative = (
+                f"{result_text} You collapse from your wounds. "
+                "Your adventure ends here."
+            )
         should_use_llm_narration = settings.ENABLE_LLM_NARRATION or strict_llm
-        if should_use_llm_narration:
+        if should_use_llm_narration and not player_defeated:
             if not self._llm_available(llm_service):
                 if strict_llm:
                     raise RuntimeError("llm narration unavailable while GAME_MODE=llm")
@@ -277,6 +374,8 @@ class GameEngine:
                 action_type=action_type,
                 available_exits=list(narrative_room.exits.keys()),
                 visible_items=[i.name for i in narrative_room.items],
+                visible_enemies=[e.name for e in narrative_room.enemies],
+                history_context=self._history_context(),
             )
             try:
                 assert llm_service is not None
@@ -287,11 +386,17 @@ class GameEngine:
             except Exception as exc:
                 self._mark_llm_temporarily_unavailable(exc)
                 if strict_llm:
-                    raise RuntimeError(f"llm narration failed while GAME_MODE=llm: {exc}") from exc
+                    raise RuntimeError(
+                        "llm narration failed while GAME_MODE=llm: "
+                        f"{self._error_text(exc)}"
+                    ) from exc
                 final_narrative = result_text
         
         assert self.state is not None  # guaranteed at this point
+        if player_defeated:
+            intent_data = {**intent_data, "game_over": True}
         self.state.history.append(f"Action: {user_input} | Result: {final_narrative}")
+        self._refresh_history_summary()
         save_game(self.state, self.save_path)
         
         return (final_narrative, intent_data)

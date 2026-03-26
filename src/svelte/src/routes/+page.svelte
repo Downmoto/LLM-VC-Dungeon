@@ -10,6 +10,7 @@
   let userInput = $state('');
   let loading = $state(false);
   let connected = $state(false);
+  let gameOver = $state(false);
 
   // message logger
   const logger = createMessageLogger();
@@ -79,6 +80,7 @@
 
       try {
         const response = await apiClient.newGame();
+        gameOver = false;
         logger.addSuccess(response.message);
         logger.addSystem('');
         const lines = response.initial_room.split('\n');
@@ -102,11 +104,34 @@
     name: 'load-game',
     aliases: ['load'],
     description: 'load a saved game',
-    handler: ({ logger }) => {
+    handler: async ({ logger }) => {
+      if (loading) {
+        logger.addSystem('already processing a request, please wait.');
+        return;
+      }
+
+      loading = true;
       logger.addSystem('');
       logger.addSystem('loading saved game...');
-      logger.addSystem('(not yet implemented)');
-      logger.addSystem('');
+      try {
+        const response = await apiClient.loadGame();
+        gameOver = false;
+        logger.addSuccess(response.message);
+        logger.addSystem('');
+        const lines = response.current_room.split('\n');
+        for (const line of lines) {
+          logger.addOutput(line);
+        }
+        logger.addSystem('');
+      } catch (err) {
+        if (err instanceof ApiError) {
+          logger.addError(err.detail);
+        } else {
+          logger.addError(err instanceof Error ? err.message : 'unknown error');
+        }
+      } finally {
+        loading = false;
+      }
     }
   });
 
@@ -286,6 +311,11 @@
     }
 
     // send to api
+    if (gameOver) {
+      logger.addSystem('game over. use /new-game or /load-game to continue.');
+      return;
+    }
+
     loading = true;
 
     try {
@@ -295,6 +325,10 @@
       const lines = response.narrative.split('\n');
       for (const line of lines) {
         logger.addOutput(line);
+      }
+      if (response.action?.game_over) {
+        gameOver = true;
+        logger.addSystem('game over. use /new-game or /load-game to continue.');
       }
       logger.addOutput('');
     } catch (err) {

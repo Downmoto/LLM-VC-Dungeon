@@ -1,0 +1,17 @@
+.git
+.gitignore
+.vscode
+.idea
+**/__pycache__
+**/.pytest_cache
+**/.mypy_cache
+**/.ruff_cache
+**/*.pyc
+**/*.pyo
+**/*.pyd
+**/.DS_Store
+src/api/venv
+src/svelte/node_modules
+src/svelte/.svelte-kit
+src/svelte/build
+src/svelte/.vite

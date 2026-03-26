@@ -43,10 +43,30 @@ dual-stack design supporting both cloud and self-hosted deployment:
 
 ## development
 
+### docker single-launch (recommended for mvp)
+
+```bash
+cp .env.example .env
+docker compose up --build
+```
+
+services:
+
+- frontend: http://localhost:3000
+- backend: http://localhost:8000
+
+optional local ollama profile:
+
+```bash
+docker compose --profile with-ollama up --build
+```
+
+### local non-docker
+
 ```bash
 # backend
 cd src/api
-cp .env.example .env
+cp ../../.env.example .env
 pip install -r requirements.txt
 uvicorn app.main:app --reload
 

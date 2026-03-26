@@ -57,3 +57,4 @@ class GameState(BaseModel):
     player: PlayerState
     rooms: Dict[str, Room] = Field(default_factory=dict)
     history: List[str] = Field(default_factory=list)
+    history_summary: str = ""

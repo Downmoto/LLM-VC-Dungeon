@@ -1,3 +1,5 @@
+import asyncio
+
 from langchain_core.tools import tool
 from langchain_ollama import ChatOllama
 from app.core.config import settings
@@ -147,7 +149,7 @@ class LLMService:
 		else:
 			return str(response.content)
 
-	async def classify_intent(self, user_input: str) -> dict:
+	async def classify_intent(self, user_input: str, history_context: str | None = None) -> dict:
 		"""
 		classify user input into game actions using a subagent with action tools.
 		returns a dict with 'action' and optional 'direction' or 'target' keys.
@@ -160,7 +162,11 @@ class LLMService:
 		- inventory: checking inventory
 		- unknown: unrecognized action
 		"""
+		context_block = history_context.strip() if history_context else "No prior turns yet."
 		prompt = f"""Analyze the player's input and call the appropriate action tool.
+
+	Recent adventure context:
+	{context_block}
 
 Player input: "{user_input}"
 
@@ -174,20 +180,20 @@ Use the available tools to classify the intent:
 
 Call the most appropriate tool based on the player's intent."""
 
-		response = await self.classify_agent.ainvoke(prompt)
+		known_tools = {tool.name: tool for tool in ACTION_TOOLS}
+
+		for attempt in range(3):
+			response = await self.classify_agent.ainvoke(prompt)
+
+			if hasattr(response, "tool_calls") and response.tool_calls:
+				tool_call = response.tool_calls[0]
+				tool_name = tool_call.get("name")
+				tool_args = tool_call.get("args", {})
+				action_tool = known_tools.get(tool_name)
+				if action_tool is not None:
+					return action_tool.invoke(tool_args)
+
+			if attempt < 2:
+				await asyncio.sleep(0.25 * (attempt + 1))
 		
-		# extract tool call from response
-		if hasattr(response, 'tool_calls') and response.tool_calls:
-			tool_call = response.tool_calls[0]
-			tool_name = tool_call['name']
-			tool_args = tool_call.get('args', {})
-			
-			# execute the tool to get the result
-			for action_tool in ACTION_TOOLS:
-				if action_tool.name == tool_name:
-					result = action_tool.invoke(tool_args)
-					print(f"Classified intent: {result}")
-					return result
-		
-		# fallback if no tool was called
 		return {"action": "unknown"}

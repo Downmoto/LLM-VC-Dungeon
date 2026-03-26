@@ -101,6 +101,110 @@ async def test_process_turn_attack_enemy(game_engine_with_state):
     assert len(current_room.enemies) == 0
 
 
+@pytest.mark.asyncio
+async def test_process_turn_attack_enemy_multi_turn_with_retaliation(game_engine_with_state, monkeypatch):
+    old_mode = settings.GAME_MODE
+    settings.GAME_MODE = "programmatic"
+
+    current_room = game_engine_with_state.state.rooms["room_0"]
+    current_room.enemies[0].hp = 20
+    current_room.enemies[0].max_hp = 20
+
+    values = iter([8, 3, 12])
+
+    def fake_randint(_start: int, _end: int) -> int:
+        return next(values)
+
+    monkeypatch.setattr(game_module.random, "randint", fake_randint)
+
+    try:
+        narrative_1, action_1 = await game_engine_with_state.process_turn("attack cave rat", None)
+        narrative_2, action_2 = await game_engine_with_state.process_turn("attack cave rat", None)
+    finally:
+        settings.GAME_MODE = old_mode
+
+    assert action_1["action"] == "attack"
+    assert "retaliates for 3 damage" in narrative_1.lower()
+    assert game_engine_with_state.state.player.hp == 97
+    assert action_2["action"] == "attack"
+    assert "you defeated the cave rat" in narrative_2.lower()
+    assert len(current_room.enemies) == 0
+
+
+@pytest.mark.asyncio
+async def test_process_turn_marks_game_over_when_player_hp_reaches_zero(game_engine_with_state, monkeypatch):
+    old_mode = settings.GAME_MODE
+    settings.GAME_MODE = "programmatic"
+
+    current_room = game_engine_with_state.state.rooms["room_0"]
+    current_room.enemies[0].hp = 20
+    current_room.enemies[0].max_hp = 20
+    game_engine_with_state.state.player.hp = 2
+
+    values = iter([4, 8])
+
+    def fake_randint(_start: int, _end: int) -> int:
+        return next(values)
+
+    monkeypatch.setattr(game_module.random, "randint", fake_randint)
+
+    try:
+        narrative, action = await game_engine_with_state.process_turn("attack cave rat", None)
+    finally:
+        settings.GAME_MODE = old_mode
+
+    assert action["action"] == "attack"
+    assert action["game_over"] is True
+    assert game_engine_with_state.state.player.hp == 0
+    assert "your adventure ends here" in narrative.lower()
+
+
+@pytest.mark.asyncio
+async def test_history_summary_truncates_to_configured_limit(game_engine_with_state):
+    old_mode = settings.GAME_MODE
+    old_narration = settings.ENABLE_LLM_NARRATION
+    old_recent = settings.HISTORY_RECENT_TURNS
+    old_limit = settings.HISTORY_SUMMARY_MAX_CHARS
+    settings.GAME_MODE = "programmatic"
+    settings.ENABLE_LLM_NARRATION = False
+    settings.HISTORY_RECENT_TURNS = 1
+    settings.HISTORY_SUMMARY_MAX_CHARS = 120
+
+    try:
+        for idx in range(6):
+            await game_engine_with_state.process_turn(f"look around {idx}", None)
+    finally:
+        settings.GAME_MODE = old_mode
+        settings.ENABLE_LLM_NARRATION = old_narration
+        settings.HISTORY_RECENT_TURNS = old_recent
+        settings.HISTORY_SUMMARY_MAX_CHARS = old_limit
+
+    summary = game_engine_with_state.state.history_summary
+    assert summary
+    assert len(summary) <= 120
+    assert "look around 5" not in summary
+
+
+@pytest.mark.asyncio
+async def test_move_to_visited_room_uses_return_text(game_engine_with_state):
+    old_mode = settings.GAME_MODE
+    old_narration = settings.ENABLE_LLM_NARRATION
+    settings.GAME_MODE = "programmatic"
+    settings.ENABLE_LLM_NARRATION = False
+
+    try:
+        await game_engine_with_state.process_turn("go north", None)
+        await game_engine_with_state.process_turn("go south", None)
+        await game_engine_with_state.process_turn("go north", None)
+        narrative, action = await game_engine_with_state.process_turn("go south", None)
+    finally:
+        settings.GAME_MODE = old_mode
+        settings.ENABLE_LLM_NARRATION = old_narration
+
+    assert action["action"] == "move"
+    assert "you return to room_0" in narrative.lower()
+
+
 class _FailingLLMService:
     async def classify_intent(self, user_input: str):
         raise RuntimeError("429 RESOURCE_EXHAUSTED. Please retry in 48.3s")
