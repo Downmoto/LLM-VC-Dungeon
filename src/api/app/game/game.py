@@ -88,6 +88,27 @@ class GameEngine:
         assert self.state is not None
         lowered = user_input.lower()
 
+        def _token_overlap_score(name: str) -> int:
+            name_tokens = set(re.findall(r"[a-z0-9']+", name.lower()))
+            input_tokens = set(re.findall(r"[a-z0-9']+", lowered))
+            return len(name_tokens & input_tokens)
+
+        best_item = None
+        best_item_score = 0
+        for item in room.items:
+            score = _token_overlap_score(item.name)
+            if score > best_item_score:
+                best_item_score = score
+                best_item = item
+
+        best_enemy = None
+        best_enemy_score = 0
+        for enemy in room.enemies:
+            score = _token_overlap_score(enemy.name)
+            if score > best_enemy_score:
+                best_enemy_score = score
+                best_enemy = enemy
+
         for item in room.items:
             if item.name.lower() in lowered:
                 return ("item", item)
@@ -95,6 +116,12 @@ class GameEngine:
         for enemy in room.enemies:
             if enemy.name.lower() in lowered:
                 return ("enemy", enemy)
+
+        if best_item_score > 0 and best_item is not None and best_item_score >= best_enemy_score:
+            return ("item", best_item)
+
+        if best_enemy_score > 0 and best_enemy is not None:
+            return ("enemy", best_enemy)
 
         if "inventory" in lowered or "bag" in lowered:
             for item in self.state.player.inventory:

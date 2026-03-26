@@ -269,6 +269,8 @@ class _FactQueryLLMService:
         self.calls += 1
         if "subject name: treasure chest" in prompt.lower():
             return '{"answer": "The treasure chest is about 3 feet wide.", "facts": {"size": "about 3 feet wide"}}'
+        if "subject name: stone golem" in prompt.lower():
+            return '{"answer": "The stone golem appears dormant but can likely see movement.", "facts": {"threat_level": "high", "can_see": "likely yes", "movement_state": "dormant"}}'
         return '{"answer": "No extra details yet.", "facts": {}}'
 
 
@@ -371,6 +373,34 @@ async def test_query_action_reuses_persisted_fact_without_llm(game_engine_with_s
 
     assert action["action"] == "query"
     assert "size: about 3 feet wide" in narrative.lower()
+
+
+@pytest.mark.asyncio
+async def test_query_action_matches_partial_enemy_name_and_persists_facts(game_engine_with_state):
+    old_mode = settings.GAME_MODE
+    old_narration = settings.ENABLE_LLM_NARRATION
+    settings.GAME_MODE = "programmatic"
+    settings.ENABLE_LLM_NARRATION = True
+
+    current_room = game_engine_with_state.state.rooms["room_0"]
+    current_room.enemies = [Enemy(name="Stone Golem", type=EnemyType.CONSTRUCT, hp=20, max_hp=20)]
+    current_room.items = []
+
+    llm = _FactQueryLLMService()
+    try:
+        narrative, action = await game_engine_with_state.process_turn(
+            "does the golem look threatening, can it see me, is it moving",
+            llm,
+        )
+    finally:
+        settings.GAME_MODE = old_mode
+        settings.ENABLE_LLM_NARRATION = old_narration
+
+    assert action["action"] == "query"
+    assert "dormant" in narrative.lower()
+    enemy = current_room.enemies[0]
+    assert enemy.extra_info.get("threat_level") == "high"
+    assert enemy.extra_info.get("can_see") == "likely yes"
 
 
 @pytest.mark.asyncio

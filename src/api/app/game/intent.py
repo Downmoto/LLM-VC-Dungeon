@@ -59,6 +59,26 @@ QUERY_WORDS = {
     "material",
 }
 
+QUESTION_STARTERS = {
+    "can",
+    "could",
+    "would",
+    "should",
+    "is",
+    "are",
+    "am",
+    "do",
+    "does",
+    "did",
+    "will",
+    "who",
+    "what",
+    "when",
+    "where",
+    "why",
+    "how",
+}
+
 TAKE_VERBS = {
     "take",
     "grab",
@@ -152,6 +172,16 @@ def _extract_target(tokens: list[str], command_words: set[str]) -> str:
     return " ".join(cleaned).strip()
 
 
+def _looks_like_question(text: str, tokens: list[str], token_set: set[str]) -> bool:
+    if "?" in text:
+        return True
+    if tokens and tokens[0] in QUESTION_STARTERS:
+        return True
+    if token_set & QUERY_WORDS:
+        return True
+    return False
+
+
 def classify_intent_programmatic(user_input: str) -> Dict[str, str]:
     text = _normalize(user_input)
     if not text:
@@ -170,9 +200,16 @@ def classify_intent_programmatic(user_input: str) -> Dict[str, str]:
     if token_set & INVENTORY_WORDS:
         return {"action": "inventory"}
 
+    if token_set & HEALTH_WORDS:
+        return {"action": "health"}
+
     # common location query shorthand, e.g. "where am i"
     if "where" in token_set and "am" in token_set and "i" in token_set:
         return {"action": "look"}
+
+    # treat conversational questions as factual queries rather than look narration
+    if _looks_like_question(user_input, tokens, token_set):
+        return {"action": "query", "target": text}
 
     if token_set & LOOK_VERBS:
         return {"action": "look"}
@@ -187,11 +224,5 @@ def classify_intent_programmatic(user_input: str) -> Dict[str, str]:
     if token_set & ATTACK_VERBS:
         target = _extract_target(tokens, ATTACK_VERBS)
         return {"action": "attack", "target": target}
-
-    if token_set & HEALTH_WORDS:
-        return {"action": "health"}
-
-    if "?" in user_input or token_set & QUERY_WORDS:
-        return {"action": "query", "target": text}
 
     return {"action": "unknown"}
