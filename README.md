@@ -46,6 +46,7 @@ dual-stack design supporting both cloud and self-hosted deployment:
 ```bash
 # backend
 cd src/api
+cp .env.example .env
 pip install -r requirements.txt
 uvicorn app.main:app --reload
 
@@ -54,6 +55,18 @@ cd src/svelte
 npm install
 npm run dev
 ```
+
+## backend environment
+
+- backend reads settings from src/api/.env
+- do not commit real api keys
+- llm mode is strict: if provider credentials or model access are invalid, new game creation fails instead of falling back to programmatic generation
+
+required provider variables:
+
+- for google: LLM_PROVIDER=google and GOOGLE_API_KEY
+- for openai: LLM_PROVIDER=openai and OPENAI_API_KEY
+- for ollama: LLM_PROVIDER=ollama and a running ollama server
 
 ## team
 

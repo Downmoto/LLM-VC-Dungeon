@@ -23,20 +23,30 @@ class GameEngine:
         assert self.state is not None  # guaranteed after init_game
         return self.state
 
-    async def init_game(self, llm_service: Optional[LLMService]):
-        try:
-            # print(f"Loading game from {self.save_path}")
-            self.state = load_game(self.save_path)
-        except Exception:
-            # print("Save not found, generating new game...")
+    async def init_game(self, llm_service: Optional[LLMService], force_new: bool = False):
+        mode = settings.GAME_MODE.lower()
+        strict_llm = mode == "llm"
+
+        if not force_new:
             try:
-                self.state = await initial_generation(llm_service)
-            except Exception as exc:
-                if llm_service is None:
-                    raise
-                self._mark_llm_temporarily_unavailable(exc)
-                self.state = await initial_generation(None)
-            save_game(self.state, self.save_path)
+                # print(f"Loading game from {self.save_path}")
+                self.state = load_game(self.save_path)
+                return
+            except Exception:
+                # print("Save not found, generating new game...")
+                pass
+
+        try:
+            self.state = await initial_generation(llm_service, strict_llm=strict_llm)
+        except Exception as exc:
+            if llm_service is None:
+                raise
+            if mode == "llm":
+                raise RuntimeError(f"llm world generation failed while GAME_MODE=llm: {exc}") from exc
+            self._mark_llm_temporarily_unavailable(exc)
+            self.state = await initial_generation(None, strict_llm=False)
+
+        save_game(self.state, self.save_path)
 
     def _llm_available(self, llm_service: Optional[LLMService]) -> bool:
         return llm_service is not None and time.time() >= self._llm_disabled_until
@@ -91,13 +101,19 @@ class GameEngine:
         user_action: str,
         logic_result: str,
         action_type: str,
+        available_exits: list[str],
+        visible_items: list[str],
     ) -> str:
+        exits_text = ", ".join(available_exits) if available_exits else "none"
+        items_text = ", ".join(visible_items) if visible_items else "none"
         return f"""
             Theme: {theme}
             Current Room Snapshot: {room_description}
             Player Action: {user_action}
             Resolved Action Type: {action_type}
             Game Logic Facts: {logic_result}
+            Available Exits: {exits_text}
+            Visible Items: {items_text}
 
             Task: Write 2-4 sentences of narrative prose about this single turn.
             Constraints:
@@ -105,6 +121,10 @@ class GameEngine:
             - do not copy any full sentence verbatim from Current Room Snapshot or Game Logic Facts.
             - add at least one fresh sensory or atmospheric detail not present in those inputs.
             - keep the response focused on this exact turn only.
+            - after the prose, append exactly these two lines in plain text:
+              Directions: <comma-separated exits or "none">
+              Items: <comma-separated visible item names or "none">
+            - the Directions and Items lines must match Available Exits and Visible Items exactly.
             """
 
     async def _classify_with_llm_timeout(self, user_input: str, llm_service: LLMService) -> dict:
@@ -119,16 +139,14 @@ class GameEngine:
         programmatic_intent = classify_intent_programmatic(user_input)
 
         if mode == "llm":
-            if programmatic_intent.get("action") != "unknown":
-                return programmatic_intent
             if not self._llm_available(llm_service):
-                return programmatic_intent
+                raise RuntimeError("llm intent classification unavailable while GAME_MODE=llm")
             try:
                 assert llm_service is not None
                 return await self._classify_with_llm_timeout(user_input, llm_service)
             except Exception as exc:
                 self._mark_llm_temporarily_unavailable(exc)
-                return programmatic_intent
+                raise RuntimeError(f"llm intent classification failed while GAME_MODE=llm: {exc}") from exc
 
         if mode == "hybrid":
             intent_data = programmatic_intent
@@ -168,11 +186,23 @@ class GameEngine:
                 
                 # Trigger generation for neighbors
                 if background_tasks:
-                     generation_llm = llm_service if self._llm_available(llm_service) else None
+                     mode = settings.GAME_MODE.lower()
+                     strict_llm = mode == "llm"
+                     if strict_llm and not self._llm_available(llm_service):
+                         generation_llm = None
+                     else:
+                         generation_llm = llm_service if self._llm_available(llm_service) else None
                      for _, neighbor_id in new_room.exits.items():
                          neighbor = self.state.rooms[neighbor_id]
                          if not neighbor.is_generated:
-                             background_tasks.add_task(expand_room, neighbor, self.state.theme, generation_llm, new_room.description)
+                             background_tasks.add_task(
+                                 expand_room,
+                                 neighbor,
+                                 self.state.theme,
+                                 generation_llm,
+                                 new_room.description,
+                                 strict_llm,
+                             )
 
                 result_text += new_room.description
                 if new_room.enemies:
@@ -227,14 +257,26 @@ class GameEngine:
             result_text = "You do that, but nothing happens."
 
         # 2. finalize output narrative
+        mode = settings.GAME_MODE.lower()
+        strict_llm = mode == "llm"
         final_narrative = result_text
-        if settings.ENABLE_LLM_NARRATION and self._llm_available(llm_service):
+        should_use_llm_narration = settings.ENABLE_LLM_NARRATION or strict_llm
+        if should_use_llm_narration:
+            if not self._llm_available(llm_service):
+                if strict_llm:
+                    raise RuntimeError("llm narration unavailable while GAME_MODE=llm")
+                assert self.state is not None
+                self.state.history.append(f"Action: {user_input} | Result: {final_narrative}")
+                save_game(self.state, self.save_path)
+                return (final_narrative, intent_data)
             narrative_prompt = self._build_narration_prompt(
                 theme=self.state.theme,
                 room_description=narrative_room.description,
                 user_action=user_input,
                 logic_result=result_text,
                 action_type=action_type,
+                available_exits=list(narrative_room.exits.keys()),
+                visible_items=[i.name for i in narrative_room.items],
             )
             try:
                 assert llm_service is not None
@@ -244,6 +286,8 @@ class GameEngine:
                     final_narrative = self._boost_narrative(result_text, narrative_room)
             except Exception as exc:
                 self._mark_llm_temporarily_unavailable(exc)
+                if strict_llm:
+                    raise RuntimeError(f"llm narration failed while GAME_MODE=llm: {exc}") from exc
                 final_narrative = result_text
         
         assert self.state is not None  # guaranteed at this point

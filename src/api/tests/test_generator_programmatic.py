@@ -70,3 +70,20 @@ async def test_initial_generation_llm_uses_single_full_dungeon_request():
     assert game_state.theme == "clockwork catacombs"
     assert len(game_state.rooms) == 10
     assert all(room.is_generated for room in game_state.rooms.values())
+
+
+class _FailingDungeonLLM:
+    async def generate_text(self, prompt: str, system_prompt: str | None = None) -> str:
+        raise RuntimeError("upstream llm failure")
+
+
+@pytest.mark.asyncio
+async def test_initial_generation_strict_llm_raises_when_llm_missing():
+    with pytest.raises(RuntimeError, match="unavailable"):
+        await initial_generation(None, strict_llm=True)
+
+
+@pytest.mark.asyncio
+async def test_initial_generation_strict_llm_raises_when_llm_fails():
+    with pytest.raises(RuntimeError, match="single-call error"):
+        await initial_generation(_FailingDungeonLLM(), strict_llm=True)

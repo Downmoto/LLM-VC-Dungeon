@@ -1,7 +1,15 @@
 import random
 import json
+import asyncio
 from typing import Any, List, Dict, Tuple
 from .models import Room, Direction, GameState, PlayerState, Item, Enemy, ItemType, EnemyType
+
+LLM_RETRY_ATTEMPTS = 4
+
+
+async def _sleep_before_retry(attempt: int):
+    delay = min(0.5 * (2 ** (attempt - 1)), 3.0)
+    await asyncio.sleep(delay)
 
 PROGRAMMATIC_THEMES = [
     "an abandoned dwarven mine reclaimed by roots and fungus",
@@ -404,36 +412,59 @@ async def generate_full_dungeon_single_call(rooms: Dict[str, Room], llm_service)
     }}
     """
 
-    response_text = await llm_service.generate_text(
-        prompt,
-        system_prompt="You are a dungeon generator. Output valid JSON only.",
-    )
-    data = _extract_json_object(response_text)
+    last_error: Exception | None = None
+    for attempt in range(1, LLM_RETRY_ATTEMPTS + 1):
+        try:
+            response_text = await llm_service.generate_text(
+                prompt,
+                system_prompt="You are a dungeon generator. Output valid JSON only.",
+            )
+            data = _extract_json_object(response_text)
 
-    theme = str(data.get("theme", "")).strip() or random.choice(PROGRAMMATIC_THEMES)
-    rooms_payload = data.get("rooms", [])
-    if not isinstance(rooms_payload, list):
-        raise ValueError("rooms payload must be a list")
+            theme = str(data.get("theme", "")).strip() or random.choice(PROGRAMMATIC_THEMES)
+            rooms_payload = data.get("rooms", [])
+            if not isinstance(rooms_payload, list):
+                raise ValueError("rooms payload must be a list")
 
-    payload_by_id: dict[str, dict[str, Any]] = {}
-    for room_data in rooms_payload:
-        if not isinstance(room_data, dict):
-            continue
-        room_id = str(room_data.get("id", "")).strip()
-        if room_id:
-            payload_by_id[room_id] = room_data
+            payload_by_id: dict[str, dict[str, Any]] = {}
+            for room_data in rooms_payload:
+                if not isinstance(room_data, dict):
+                    continue
+                room_id = str(room_data.get("id", "")).strip()
+                if room_id:
+                    payload_by_id[room_id] = room_data
 
-    for room_id, room in rooms.items():
-        room_payload = payload_by_id.get(room_id, {})
-        _apply_room_payload(room, room_payload, theme)
+            missing_rooms = [room_id for room_id in rooms.keys() if room_id not in payload_by_id]
+            if missing_rooms:
+                raise ValueError(f"rooms payload missing ids: {', '.join(missing_rooms)}")
 
-    return theme
+            for room_id, room in rooms.items():
+                room_payload = payload_by_id.get(room_id, {})
+                _apply_room_payload(room, room_payload, theme)
 
-async def expand_room(room: Room, theme: str, llm_service, previous_room_desc: str | None = None):
+            return theme
+        except Exception as exc:
+            last_error = exc
+            if attempt < LLM_RETRY_ATTEMPTS:
+                await _sleep_before_retry(attempt)
+
+    assert last_error is not None
+    raise RuntimeError(f"single-call dungeon generation failed after {LLM_RETRY_ATTEMPTS} attempts: {last_error}") from last_error
+
+async def expand_room(
+    room: Room,
+    theme: str,
+    llm_service,
+    previous_room_desc: str | None = None,
+    strict_llm: bool = False,
+    retry_attempts: int = LLM_RETRY_ATTEMPTS,
+):
     if room.is_generated:
         return
 
     if llm_service is None:
+        if strict_llm:
+            raise RuntimeError("llm room generation unavailable while strict_llm is enabled")
         biome = _infer_biome(theme)
         table = BIOME_TABLES[biome]
         difficulty = _room_difficulty(room.id)
@@ -482,48 +513,72 @@ async def expand_room(room: Room, theme: str, llm_service, previous_room_desc: s
     }}
     """
     
-    try:
-        response_text = await llm_service.generate_text(prompt, system_prompt="You are a dungeon generator. Output valid JSON only.")
-        
-        data = _extract_json_object(response_text)
-        
-        room.description = data.get("description", "A dark, unexplained room.")
-        
-        for item_data in data.get("items", []):
-            try:
-                itype = _to_item_type(item_data.get("type"))
-            except:
-                itype = ItemType.OTHER
-            room.items.append(Item(name=item_data["name"], description=item_data.get("description", ""), type=itype, is_generated=True))
+    last_error: Exception | None = None
+    for attempt in range(1, max(1, retry_attempts) + 1):
+        try:
+            response_text = await llm_service.generate_text(prompt, system_prompt="You are a dungeon generator. Output valid JSON only.")
             
-        for enemy_data in data.get("enemies", []):
-            try:
-                etype = _to_enemy_type(enemy_data.get("type"))
-            except:
-                etype = EnemyType.OTHER
-            room.enemies.append(Enemy(name=enemy_data["name"], description=enemy_data.get("description", ""), type=etype, is_generated=True))
+            data = _extract_json_object(response_text)
             
-    except Exception as e:
-        print(f"Error parsing room generation: {e}")
-        # Fallback
-        room.description = f"You are in {room.id}. The shadows are deep here."
+            room.description = data.get("description", "A dark, unexplained room.")
+            room.items = []
+            room.enemies = []
+            
+            for item_data in data.get("items", []):
+                try:
+                    itype = _to_item_type(item_data.get("type"))
+                except Exception:
+                    itype = ItemType.OTHER
+                room.items.append(Item(name=item_data["name"], description=item_data.get("description", ""), type=itype, is_generated=True))
+                
+            for enemy_data in data.get("enemies", []):
+                try:
+                    etype = _to_enemy_type(enemy_data.get("type"))
+                except Exception:
+                    etype = EnemyType.OTHER
+                room.enemies.append(Enemy(name=enemy_data["name"], description=enemy_data.get("description", ""), type=etype, is_generated=True))
+
+            room.is_generated = True
+            return
+        except Exception as e:
+            last_error = e
+            print(f"Error parsing room generation (attempt {attempt}): {e}")
+            if attempt < max(1, retry_attempts):
+                await _sleep_before_retry(attempt)
+
+    if strict_llm:
+        raise RuntimeError(f"llm room generation failed while strict_llm is enabled: {last_error}") from last_error
+    room.description = f"You are in {room.id}. The shadows are deep here."
     
     room.is_generated = True
 
-async def initial_generation(llm_service) -> GameState:
+async def initial_generation(llm_service, strict_llm: bool = False) -> GameState:
     rooms = generate_topology(num_rooms=10)
     if llm_service is not None:
         try:
             theme = await generate_full_dungeon_single_call(rooms, llm_service)
         except Exception as e:
             print(f"Error in single-call dungeon generation: {e}")
-            theme = await generate_theme(None)
-            for room in rooms.values():
-                await expand_room(room, theme, None)
+            if strict_llm:
+                try:
+                    theme = await generate_theme(llm_service)
+                    for room in rooms.values():
+                        await expand_room(room, theme, llm_service, strict_llm=True)
+                except Exception as fallback_exc:
+                    raise RuntimeError(
+                        "llm dungeon generation failed while strict_llm is enabled "
+                        f"(single-call error: {e}; multi-call error: {fallback_exc})"
+                    ) from fallback_exc
+            else:
+                theme = await generate_theme(None)
+                for room in rooms.values():
+                    await expand_room(room, theme, None, strict_llm=False)
     else:
+        if strict_llm:
+            raise RuntimeError("llm dungeon generation unavailable while strict_llm is enabled")
         theme = await generate_theme(None)
         for room in rooms.values():
-            await expand_room(room, theme, None)
+            await expand_room(room, theme, None, strict_llm=False)
     
     start_room_id = "room_0"
     player = PlayerState(current_room_id=start_room_id)

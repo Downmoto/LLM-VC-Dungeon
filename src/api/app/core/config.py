@@ -16,9 +16,9 @@ class Settings(BaseSettings):
     OPENAI_BASE_URL: str = ""
     OPENAI_GEN_MODEL: str = "gpt-4o-mini"
     OPENAI_CLASSIFY_MODEL: str = "gpt-4o-mini"
-    GOOGLE_API_KEY: str = "AIzaSyA74HajsvWgPXeROsnmRApYDcuxrFwe1bg"
-    GOOGLE_GEN_MODEL: str = "gemini-3-flash-preview"
-    GOOGLE_CLASSIFY_MODEL: str = "gemini-3-flash-preview"
+    GOOGLE_API_KEY: str = ""
+    GOOGLE_GEN_MODEL: str = "gemini-3.1-pro-preview"
+    GOOGLE_CLASSIFY_MODEL: str = "gemini-3.1-pro-preview"
     
     # agent configuration
     AGENT_TEMPERATURE: float = 0.7

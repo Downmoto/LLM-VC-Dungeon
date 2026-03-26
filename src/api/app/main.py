@@ -170,7 +170,7 @@ async def new_game(request: NewGameRequest):
         new_game_engine = GameEngine(save_path)
         
         # initialize with fresh game state
-        await new_game_engine.init_game(llm_provider)
+        await new_game_engine.init_game(llm_provider, force_new=True)
         
         # replace global game engine
         global game_engine

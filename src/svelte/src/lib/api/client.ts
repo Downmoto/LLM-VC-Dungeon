@@ -25,6 +25,7 @@ export interface HealthResponse {
   status: string;
   ollama_url: string;
   ollama_model: string;
+  llm_model: string;
   endpoints: {
     generate: string;
     classify: string;

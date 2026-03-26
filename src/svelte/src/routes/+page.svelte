@@ -242,7 +242,7 @@
     try {
       const health = await apiClient.healthCheck();
       connected = true;
-      logger.addSystem(`connected. model: ${health.ollama_model}`);
+      logger.addSystem(`connected. model: ${health.llm_model}`);
       logger.addSystem('');
       logger.addSystem('========================================');
       logger.addSystem('   llm voice-controlled dungeon v1.0');
