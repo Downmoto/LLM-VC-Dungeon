@@ -55,6 +55,11 @@ services:
 - frontend: http://localhost:3000
 - backend: http://localhost:8000
 
+healthcheck notes:
+
+- backend health endpoint: / on port 8000
+- frontend health endpoint: / on port 3000
+
 optional local ollama profile:
 
 ```bash
@@ -87,6 +92,16 @@ required provider variables:
 - for google: LLM_PROVIDER=google and GOOGLE_API_KEY
 - for openai: LLM_PROVIDER=openai and OPENAI_API_KEY
 - for ollama: LLM_PROVIDER=ollama and a running ollama server
+
+additional runtime controls:
+
+- HISTORY_RECENT_TURNS controls how many latest action/result entries are passed directly to llm context
+- HISTORY_SUMMARY_MAX_CHARS caps the rolling summary text length used for older turns
+
+save/load path policy:
+
+- api save and load paths are restricted to the backend data directory
+- use relative names like savegame.json or nested paths under data/
 
 ## team
 

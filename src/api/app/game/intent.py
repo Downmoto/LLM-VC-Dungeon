@@ -50,7 +50,10 @@ TAKE_VERBS = {
 
 ATTACK_VERBS = {
     "attack",
+    "attacking",
     "fight",
+    "fighting",
+    "battle",
     "hit",
     "strike",
     "kill",
@@ -64,6 +67,15 @@ INVENTORY_WORDS = {
     "items",
     "bag",
     "backpack",
+}
+
+HEALTH_WORDS = {
+    "health",
+    "hp",
+    "status",
+    "condition",
+    "hurt",
+    "wounded",
 }
 
 STOPWORDS = {
@@ -155,5 +167,8 @@ def classify_intent_programmatic(user_input: str) -> Dict[str, str]:
     if token_set & ATTACK_VERBS:
         target = _extract_target(tokens, ATTACK_VERBS)
         return {"action": "attack", "target": target}
+
+    if token_set & HEALTH_WORDS:
+        return {"action": "health"}
 
     return {"action": "unknown"}

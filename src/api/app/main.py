@@ -9,6 +9,19 @@ from app.game.intent import classify_intent_programmatic
 from app.services.llm import LLMService
 
 
+SAVE_ROOT = os.path.realpath("data")
+
+
+def _normalize_save_path(save_path: Optional[str]) -> str:
+    os.makedirs(SAVE_ROOT, exist_ok=True)
+    requested = (save_path or "savegame.json").strip()
+    candidate = requested if os.path.isabs(requested) else os.path.join(SAVE_ROOT, requested)
+    normalized = os.path.realpath(candidate)
+    if os.path.commonpath([SAVE_ROOT, normalized]) != SAVE_ROOT:
+        raise HTTPException(status_code=400, detail="save path must be inside data directory")
+    return normalized
+
+
 # pydantic models for request/response
 class NewGameRequest(BaseModel):
     save_path: Optional[str] = None
@@ -37,6 +50,7 @@ class GameTurnRequest(BaseModel):
 class GameTurnResponse(BaseModel):
     narrative: str
     action: Optional[dict] = None
+    state: Optional[dict[str, Any]] = None
 
 
 class MapRoomResponse(BaseModel):
@@ -175,7 +189,7 @@ async def new_game(request: NewGameRequest):
     
     try:
         # create new game engine instance
-        save_path = request.save_path or "data/savegame.json"
+        save_path = _normalize_save_path(request.save_path)
         new_game_engine = GameEngine(save_path)
         
         # initialize with fresh game state
@@ -194,6 +208,8 @@ async def new_game(request: NewGameRequest):
             game_id=state.player.current_room_id,
             initial_room=current_room.description
         )
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"failed to start new game: {str(e)}")
 
@@ -205,7 +221,7 @@ async def load_game_endpoint(request: LoadGameRequest):
         raise HTTPException(status_code=503, detail="llm provider not initialized")
     
     try:
-        save_path = request.save_path or "data/savegame.json"
+        save_path = _normalize_save_path(request.save_path)
         if not os.path.isfile(save_path):
             raise HTTPException(status_code=404, detail=f"save file not found: {save_path}")
         loaded_game_engine = GameEngine(save_path)
@@ -240,7 +256,15 @@ async def process_game_turn(request: GameTurnRequest, background_tasks: Backgrou
     
     try:
         (narrative, action) = await game_engine.process_turn(request.user_input, llm_provider, background_tasks)
-        return GameTurnResponse(narrative=narrative, action=action)
+        state = await game_engine.get_state(llm_provider)
+        snapshot = {
+            "current_room_id": state.player.current_room_id,
+            "player_hp": state.player.hp,
+            "player_max_hp": state.player.max_hp,
+            "inventory_size": len(state.player.inventory),
+            "history_size": len(state.history),
+        }
+        return GameTurnResponse(narrative=narrative, action=action, state=snapshot)
     except Exception as e:
         error_message = str(e).strip() or repr(e)
         raise HTTPException(status_code=500, detail=f"game turn failed: {error_message}")

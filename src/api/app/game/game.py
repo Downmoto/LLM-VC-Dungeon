@@ -133,6 +133,7 @@ class GameEngine:
             - preserve the concrete facts in Game Logic Facts.
             - do not copy any full sentence verbatim from Current Room Snapshot or Game Logic Facts.
             - add at least one fresh sensory or atmospheric detail not present in those inputs.
+            - naturally mention what routes are available and at least one notable item if Visible Items is not "none".
             - if Visible Enemies is not "none", mention at least one enemy by name in the prose.
             - keep the response focused on this exact turn only.
             - after the prose, append exactly these two lines in plain text:
@@ -140,6 +141,17 @@ class GameEngine:
               Items: <comma-separated visible item names or "none">
             - the Directions and Items lines must match Available Exits and Visible Items exactly.
             """
+
+    def _format_room_footer(self, room: Room) -> str:
+        exits_text = ",".join(room.exits.keys()) if room.exits else "none"
+        items_text = ",".join(item.name for item in room.items) if room.items else "none"
+        return f"Directions: {exits_text}\nItems: {items_text}"
+
+    def _enforce_room_footer(self, text: str, room: Room) -> str:
+        # strip any llm-provided footer and replace with canonical game-state footer
+        cleaned = re.sub(r"\n+Directions:\s*.*\nItems:\s*.*\s*$", "", text.strip(), flags=re.IGNORECASE)
+        footer = self._format_room_footer(room)
+        return f"{cleaned}\n\n{footer}"
 
     def _history_context(self) -> str:
         assert self.state is not None
@@ -343,6 +355,9 @@ class GameEngine:
                 result_text = "You have: " + ", ".join([i.name for i in self.state.player.inventory])
             else:
                 result_text = "Your inventory is empty."
+
+        elif action_type == "health":
+            result_text = f"You have {self.state.player.hp}/{self.state.player.max_hp} hp."
                 
         else:
             result_text = "You do that, but nothing happens."
@@ -391,6 +406,8 @@ class GameEngine:
                         f"{self._error_text(exc)}"
                     ) from exc
                 final_narrative = result_text
+
+        final_narrative = self._enforce_room_footer(final_narrative, narrative_room)
         
         assert self.state is not None  # guaranteed at this point
         if player_defeated:

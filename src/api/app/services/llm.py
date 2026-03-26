@@ -32,6 +32,11 @@ def action_inventory() -> dict:
 	return {"action": "inventory"}
 
 @tool
+def action_health() -> dict:
+	"""player wants to check their current health, hp, injuries, or overall status."""
+	return {"action": "health"}
+
+@tool
 def action_unknown() -> dict:
 	"""call this when the player's intent doesn't match any known game action."""
 	return {"action": "unknown"}
@@ -44,6 +49,7 @@ ACTION_TOOLS = [
 	action_take,
 	action_attack,
 	action_inventory,
+	action_health,
 	action_unknown,
 ]
 
@@ -160,6 +166,7 @@ class LLMService:
 		- take: picking up an item
 		- attack: attacking an enemy
 		- inventory: checking inventory
+		- health: checking current hp / health status
 		- unknown: unrecognized action
 		"""
 		context_block = history_context.strip() if history_context else "No prior turns yet."
@@ -176,6 +183,7 @@ Use the available tools to classify the intent:
 - action_take: if they want to pick up an item (extract the item name)
 - action_attack: if they want to fight something (extract the target name)
 - action_inventory: if they want to check their items
+- action_health: if they ask about hp, health, injuries, or status
 - action_unknown: if none of the above apply
 
 Call the most appropriate tool based on the player's intent."""

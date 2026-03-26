@@ -102,6 +102,36 @@ async def test_process_turn_attack_enemy(game_engine_with_state):
 
 
 @pytest.mark.asyncio
+async def test_process_turn_attack_enemy_with_gerund_input(game_engine_with_state):
+    old_mode = settings.GAME_MODE
+    settings.GAME_MODE = "programmatic"
+
+    try:
+        narrative, action = await game_engine_with_state.process_turn("attacking cave rat", None)
+    finally:
+        settings.GAME_MODE = old_mode
+
+    assert action["action"] == "attack"
+    assert "you defeated the cave rat" in narrative.lower()
+
+
+@pytest.mark.asyncio
+async def test_process_turn_health_status(game_engine_with_state):
+    old_mode = settings.GAME_MODE
+    settings.GAME_MODE = "programmatic"
+
+    try:
+        narrative, action = await game_engine_with_state.process_turn("how much health do i have", None)
+    finally:
+        settings.GAME_MODE = old_mode
+
+    assert action["action"] == "health"
+    assert "100/100 hp" in narrative.lower()
+    assert "directions:" in narrative.lower()
+    assert "items:" in narrative.lower()
+
+
+@pytest.mark.asyncio
 async def test_process_turn_attack_enemy_multi_turn_with_retaliation(game_engine_with_state, monkeypatch):
     old_mode = settings.GAME_MODE
     settings.GAME_MODE = "programmatic"
@@ -283,6 +313,8 @@ async def test_move_narration_uses_destination_room_context_and_boosts_copy(game
     assert "current room snapshot: you are in the northern room" in llm.last_prompt.lower()
     assert "resolved action type: move" in llm.last_prompt.lower()
     assert "faint echo from beyond the nearest passage" in narrative.lower()
+    assert "directions: south" in narrative.lower()
+    assert "items: none" in narrative.lower()
 
 
 @pytest.mark.asyncio

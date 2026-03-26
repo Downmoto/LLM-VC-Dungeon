@@ -1,5 +1,3 @@
-Created memory file [](file:///Users/arad/Library/Application%20Support/Code/User/workspaceStorage/10ceea539b046e3e33fbe0096be1a5ed/GitHub.copilot-chat/memory-tool/memories/N2IyM2ZjNmItMDRmZC00ZDQ2LTliZTItYjY0MWVhNDFlYjU3/plan.md)
-
 ## Plan: Final MVP Cohesive Dungeon + Container Launch
 
 Recommended approach is to ship a production-like containerized MVP first, then harden narrative consistency by adding structured memory (rolling summary + recent turns), then improve room/enemy narration quality, and finally add a lightweight combat loop. This keeps deployment risk low while directly fixing the largest gameplay coherence issues you called out.
@@ -57,4 +55,4 @@ Recommended approach is to ship a production-like containerized MVP first, then 
 - Narrative memory: rolling summary plus recent-turn window.
 - Out of scope for MVP: advanced combat systems and major world-generation architecture rewrite.
 
-Plan has been saved to /memories/session/plan.md. If you want, I can refine this into a milestone-by-milestone execution checklist with rough hour estimates per step before handoff.
+Plan has been saved to /memories/session/plan.md.

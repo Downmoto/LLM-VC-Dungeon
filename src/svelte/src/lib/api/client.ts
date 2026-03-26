@@ -44,9 +44,18 @@ export interface GameTurnAction {
   [key: string]: any;
 }
 
+export interface GameTurnState {
+  current_room_id: string;
+  player_hp: number;
+  player_max_hp: number;
+  inventory_size: number;
+  history_size: number;
+}
+
 export interface GameTurnResponse {
   narrative: string;
   action?: GameTurnAction;
+  state?: GameTurnState;
 }
 
 export interface NewGameRequest {
