@@ -1,5 +1,5 @@
 from enum import Enum
-from typing import List, Dict, Union, Optional
+from typing import List, Dict
 from pydantic import BaseModel, Field
 
 class ItemType(str, Enum):
@@ -22,6 +22,7 @@ class Entity(BaseModel):
     name: str
     description: str = ""
     is_generated: bool = False
+    extra_info: Dict[str, str] = Field(default_factory=dict)
 
 class Item(Entity):
     type: ItemType = ItemType.OTHER
@@ -43,6 +44,7 @@ class Room(BaseModel):
     description: str = ""
     items: List[Item] = Field(default_factory=list)
     enemies: List[Enemy] = Field(default_factory=list)
+    extra_info: Dict[str, str] = Field(default_factory=dict)
     is_visited: bool = False
     is_generated: bool = False
 

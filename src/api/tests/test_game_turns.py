@@ -261,6 +261,17 @@ class _NarrationEchoLLMService:
         return "you move north. you are in the northern room"
 
 
+class _FactQueryLLMService:
+    def __init__(self):
+        self.calls = 0
+
+    async def generate_text(self, prompt: str, system_prompt: str | None = None):
+        self.calls += 1
+        if "subject name: treasure chest" in prompt.lower():
+            return '{"answer": "The treasure chest is about 3 feet wide.", "facts": {"size": "about 3 feet wide"}}'
+        return '{"answer": "No extra details yet.", "facts": {}}'
+
+
 @pytest.mark.asyncio
 async def test_process_turn_llm_quota_raises_when_strict_llm_mode(game_engine_with_state):
     old_mode = settings.GAME_MODE
@@ -315,6 +326,51 @@ async def test_move_narration_uses_destination_room_context_and_boosts_copy(game
     assert "faint echo from beyond the nearest passage" in narrative.lower()
     assert "directions: south" in narrative.lower()
     assert "items: none" in narrative.lower()
+
+
+@pytest.mark.asyncio
+async def test_query_action_persists_new_fact_on_item(game_engine_with_state):
+    old_mode = settings.GAME_MODE
+    old_narration = settings.ENABLE_LLM_NARRATION
+    settings.GAME_MODE = "programmatic"
+    settings.ENABLE_LLM_NARRATION = True
+
+    current_room = game_engine_with_state.state.rooms["room_0"]
+    current_room.items = [Item(name="Treasure Chest", type=ItemType.TREASURE)]
+    current_room.enemies = []
+
+    llm = _FactQueryLLMService()
+    try:
+        narrative, action = await game_engine_with_state.process_turn("how large is the treasure chest", llm)
+    finally:
+        settings.GAME_MODE = old_mode
+        settings.ENABLE_LLM_NARRATION = old_narration
+
+    assert action["action"] == "query"
+    assert "about 3 feet wide" in narrative.lower()
+    assert llm.calls == 1
+    assert current_room.items[0].extra_info.get("size") == "about 3 feet wide"
+
+
+@pytest.mark.asyncio
+async def test_query_action_reuses_persisted_fact_without_llm(game_engine_with_state):
+    old_mode = settings.GAME_MODE
+    old_narration = settings.ENABLE_LLM_NARRATION
+    settings.GAME_MODE = "programmatic"
+    settings.ENABLE_LLM_NARRATION = True
+
+    current_room = game_engine_with_state.state.rooms["room_0"]
+    current_room.items = [Item(name="Treasure Chest", type=ItemType.TREASURE, extra_info={"size": "about 3 feet wide"})]
+    current_room.enemies = []
+
+    try:
+        narrative, action = await game_engine_with_state.process_turn("how big is it", None)
+    finally:
+        settings.GAME_MODE = old_mode
+        settings.ENABLE_LLM_NARRATION = old_narration
+
+    assert action["action"] == "query"
+    assert "size: about 3 feet wide" in narrative.lower()
 
 
 @pytest.mark.asyncio

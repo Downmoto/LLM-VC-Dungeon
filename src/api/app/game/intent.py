@@ -39,6 +39,26 @@ LOOK_VERBS = {
     "where",
 }
 
+QUERY_WORDS = {
+    "what",
+    "how",
+    "which",
+    "who",
+    "when",
+    "why",
+    "tell",
+    "describe",
+    "details",
+    "detail",
+    "size",
+    "large",
+    "big",
+    "small",
+    "weight",
+    "color",
+    "material",
+}
+
 TAKE_VERBS = {
     "take",
     "grab",
@@ -170,5 +190,8 @@ def classify_intent_programmatic(user_input: str) -> Dict[str, str]:
 
     if token_set & HEALTH_WORDS:
         return {"action": "health"}
+
+    if "?" in user_input or token_set & QUERY_WORDS:
+        return {"action": "query", "target": text}
 
     return {"action": "unknown"}

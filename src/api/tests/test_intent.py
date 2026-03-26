@@ -55,6 +55,12 @@ def test_classify_where_am_i_as_look():
     assert intent == {"action": "look"}
 
 
+def test_classify_general_question_as_query():
+    intent = classify_intent_programmatic("how large is the chest?")
+    assert intent["action"] == "query"
+    assert "chest" in intent["target"]
+
+
 @pytest.mark.asyncio
 async def test_llm_classify_intent_returns_unknown_after_tool_call_failures(monkeypatch):
     service = object.__new__(LLMService)

@@ -2,7 +2,8 @@ import re
 import time
 import asyncio
 import random
-from typing import Optional
+import json
+from typing import Optional, Any
 from fastapi import BackgroundTasks
 
 from app.services.llm import LLMService
@@ -70,6 +71,153 @@ class GameEngine:
         if message:
             return message
         return f"{error.__class__.__name__} (empty error message)"
+
+    def _extract_json_object(self, text: str) -> dict[str, Any]:
+        clean_text = text.replace("```json", "").replace("```", "").strip()
+        start_idx = clean_text.find("{")
+        end_idx = clean_text.rfind("}")
+        if start_idx == -1 or end_idx == -1:
+            raise ValueError("no json object found in llm response")
+        clean_text = clean_text[start_idx:end_idx + 1]
+        data = json.loads(clean_text)
+        if not isinstance(data, dict):
+            raise ValueError("llm response json root must be an object")
+        return data
+
+    def _query_subject(self, room: Room, user_input: str) -> tuple[str | None, Any]:
+        assert self.state is not None
+        lowered = user_input.lower()
+
+        for item in room.items:
+            if item.name.lower() in lowered:
+                return ("item", item)
+
+        for enemy in room.enemies:
+            if enemy.name.lower() in lowered:
+                return ("enemy", enemy)
+
+        if "inventory" in lowered or "bag" in lowered:
+            for item in self.state.player.inventory:
+                if item.name.lower() in lowered:
+                    return ("item", item)
+
+        room_markers = {"room", "chamber", "here", "surroundings", "place", "area"}
+        if any(marker in lowered for marker in room_markers):
+            return ("room", room)
+
+        pronouns = {"it", "that", "this"}
+        entity_count = len(room.items) + len(room.enemies)
+        if entity_count == 1 and any(f" {word} " in f" {lowered} " for word in pronouns):
+            if room.items:
+                return ("item", room.items[0])
+            return ("enemy", room.enemies[0])
+
+        return (None, None)
+
+    def _subject_label(self, subject_kind: str, subject: Any) -> str:
+        if subject_kind == "room":
+            return "the current room"
+        return str(subject.name)
+
+    def _build_query_prompt(
+        self,
+        theme: str,
+        room: Room,
+        user_input: str,
+        subject_kind: str,
+        subject: Any,
+    ) -> str:
+        known_facts = subject.extra_info if hasattr(subject, "extra_info") else {}
+        subject_name = self._subject_label(subject_kind, subject)
+        subject_description = room.description if subject_kind == "room" else getattr(subject, "description", "")
+        return f"""
+            You are maintaining canonical game facts for a dungeon crawler.
+            Answer the player's factual question and provide structured facts to persist.
+
+            Theme: {theme}
+            Question: {user_input}
+            Subject Type: {subject_kind}
+            Subject Name: {subject_name}
+            Subject Description: {subject_description}
+            Known Facts: {json.dumps(known_facts, ensure_ascii=True)}
+
+            Output valid JSON only with this shape:
+            {{
+              "answer": "short factual answer for the player",
+              "facts": {{
+                "fact_key": "fact value"
+              }}
+            }}
+
+            Rules:
+            - reuse Known Facts when possible.
+            - if the question asks for an unknown detail, invent one consistent with the theme and subject.
+            - facts keys must be short snake_case labels.
+            - keep answer concise and factual; no atmospheric narration.
+            """
+
+    def _sanitize_fact_updates(self, facts_obj: Any) -> dict[str, str]:
+        if not isinstance(facts_obj, dict):
+            return {}
+        cleaned: dict[str, str] = {}
+        for key, value in facts_obj.items():
+            key_text = re.sub(r"[^a-z0-9_]+", "_", str(key).strip().lower())
+            key_text = re.sub(r"_+", "_", key_text).strip("_")
+            value_text = str(value).strip()
+            if key_text and value_text:
+                cleaned[key_text] = value_text
+        return cleaned
+
+    def _fallback_fact_answer(self, subject_kind: str, subject: Any) -> str:
+        known_facts = subject.extra_info if hasattr(subject, "extra_info") else {}
+        if not known_facts:
+            if subject_kind == "room":
+                return "You have no recorded extra details about this room yet."
+            return f"You have no recorded extra details about {subject.name} yet."
+
+        details = ", ".join(
+            f"{key.replace('_', ' ')}: {value}"
+            for key, value in known_facts.items()
+        )
+        if subject_kind == "room":
+            return f"Known room details: {details}."
+        return f"Known details for {subject.name}: {details}."
+
+    async def _handle_query(self, user_input: str, room: Room, llm_service: Optional[LLMService]) -> str:
+        assert self.state is not None
+        subject_kind, subject = self._query_subject(room, user_input)
+        if subject_kind is None or subject is None:
+            return "Ask about a visible item, enemy, or this room so I can track concrete details."
+
+        if not self._llm_available(llm_service):
+            return self._fallback_fact_answer(subject_kind, subject)
+
+        prompt = self._build_query_prompt(
+            theme=self.state.theme,
+            room=room,
+            user_input=user_input,
+            subject_kind=subject_kind,
+            subject=subject,
+        )
+
+        try:
+            assert llm_service is not None
+            llm_response = await llm_service.generate_text(
+                prompt,
+                system_prompt="You answer factual game queries and return valid JSON only.",
+            )
+            parsed = self._extract_json_object(llm_response)
+            updates = self._sanitize_fact_updates(parsed.get("facts", {}))
+            if updates:
+                subject.extra_info.update(updates)
+
+            answer = str(parsed.get("answer", "")).strip()
+            if answer:
+                return answer
+            return self._fallback_fact_answer(subject_kind, subject)
+        except Exception as exc:
+            self._mark_llm_temporarily_unavailable(exc)
+            return self._fallback_fact_answer(subject_kind, subject)
 
     def _normalize_for_compare(self, text: str) -> str:
         lowered = text.lower()
@@ -212,6 +360,9 @@ class GameEngine:
         mode = settings.GAME_MODE.lower()
         programmatic_intent = classify_intent_programmatic(user_input)
         history_context = self._history_context() if self.state else "No prior turns yet."
+
+        if programmatic_intent.get("action") == "query":
+            return programmatic_intent
 
         if mode == "llm":
             if not self._llm_available(llm_service):
@@ -358,6 +509,9 @@ class GameEngine:
 
         elif action_type == "health":
             result_text = f"You have {self.state.player.hp}/{self.state.player.max_hp} hp."
+
+        elif action_type == "query":
+            result_text = await self._handle_query(user_input, current_room, llm_service)
                 
         else:
             result_text = "You do that, but nothing happens."
@@ -373,7 +527,7 @@ class GameEngine:
                 "Your adventure ends here."
             )
         should_use_llm_narration = settings.ENABLE_LLM_NARRATION or strict_llm
-        if should_use_llm_narration and not player_defeated:
+        if should_use_llm_narration and not player_defeated and action_type != "query":
             if not self._llm_available(llm_service):
                 if strict_llm:
                     raise RuntimeError("llm narration unavailable while GAME_MODE=llm")
