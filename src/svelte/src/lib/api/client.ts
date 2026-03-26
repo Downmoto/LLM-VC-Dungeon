@@ -25,6 +25,7 @@ export interface HealthResponse {
   status: string;
   ollama_url: string;
   ollama_model: string;
+  llm_model: string;
   endpoints: {
     generate: string;
     classify: string;
@@ -35,9 +36,59 @@ export interface GameTurnRequest {
   user_input: string;
 }
 
+export interface GameTurnAction {
+  action?: string;
+  target?: string;
+  direction?: string;
+  game_over?: boolean;
+  [key: string]: any;
+}
+
+export interface GameTurnState {
+  current_room_id: string;
+  player_hp: number;
+  player_max_hp: number;
+  inventory_size: number;
+  history_size: number;
+}
+
 export interface GameTurnResponse {
   narrative: string;
-  action?: Record<string, any>;
+  action?: GameTurnAction;
+  state?: GameTurnState;
+}
+
+export interface NewGameRequest {
+  save_path?: string;
+}
+
+export interface NewGameResponse {
+  message: string;
+  game_id: string;
+  initial_room: string;
+}
+
+export interface LoadGameRequest {
+  save_path?: string;
+}
+
+export interface LoadGameResponse {
+  message: string;
+  game_id: string;
+  current_room: string;
+}
+
+export interface MapRoomResponse {
+  id: string;
+  exits: Record<string, string>;
+  is_generated: boolean;
+  is_visited: boolean;
+}
+
+export interface GameMapResponse {
+  theme: string;
+  current_room_id: string;
+  rooms: MapRoomResponse[];
 }
 
 // api error class
@@ -57,14 +108,18 @@ async function apiFetch<T>(
   options?: RequestInit
 ): Promise<T> {
   const url = `${API_BASE_URL}${endpoint}`;
+  const hasBody = options?.body !== undefined && options?.body !== null;
+  const mergedHeaders: Record<string, string> = {
+    ...(options?.headers as Record<string, string> | undefined),
+  };
+  if (hasBody && !mergedHeaders['Content-Type']) {
+    mergedHeaders['Content-Type'] = 'application/json';
+  }
   
   try {
     const response = await fetch(url, {
       ...options,
-      headers: {
-        'Content-Type': 'application/json',
-        ...options?.headers,
-      },
+      headers: mergedHeaders,
     });
 
     if (!response.ok) {
@@ -110,5 +165,25 @@ export const apiClient = {
       method: 'POST',
       body: JSON.stringify(request),
     });
+  },
+
+  // start a new game
+  async newGame(request: NewGameRequest = {}): Promise<NewGameResponse> {
+    return apiFetch<NewGameResponse>('/api/new-game', {
+      method: 'POST',
+      body: JSON.stringify(request),
+    });
+  },
+
+  async loadGame(request: LoadGameRequest = {}): Promise<LoadGameResponse> {
+    return apiFetch<LoadGameResponse>('/api/load-game', {
+      method: 'POST',
+      body: JSON.stringify(request),
+    });
+  },
+
+  // fetch current dungeon map graph
+  async getGameMap(): Promise<GameMapResponse> {
+    return apiFetch<GameMapResponse>('/api/game/map');
   },
 };

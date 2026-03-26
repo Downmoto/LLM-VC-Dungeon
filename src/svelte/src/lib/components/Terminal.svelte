@@ -46,7 +46,11 @@
   });
 
   function handleKeydown(event: KeyboardEvent) {
-    if (event.key === 'Enter' && !loading && userInput.trim()) {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+    }
+
+    if (event.key === 'Enter' && !event.repeat && !loading && userInput.trim()) {
       onSubmit?.(userInput);
     }
   }

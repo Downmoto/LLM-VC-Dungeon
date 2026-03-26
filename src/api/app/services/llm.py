@@ -1,6 +1,7 @@
-from langchain_ollama import ChatOllama
+import asyncio
+
 from langchain_core.tools import tool
-from langchain.messages import AIMessage
+from langchain_ollama import ChatOllama
 from app.core.config import settings
 
 
@@ -31,6 +32,11 @@ def action_inventory() -> dict:
 	return {"action": "inventory"}
 
 @tool
+def action_health() -> dict:
+	"""player wants to check their current health, hp, injuries, or overall status."""
+	return {"action": "health"}
+
+@tool
 def action_unknown() -> dict:
 	"""call this when the player's intent doesn't match any known game action."""
 	return {"action": "unknown"}
@@ -43,26 +49,86 @@ ACTION_TOOLS = [
 	action_take,
 	action_attack,
 	action_inventory,
+	action_health,
 	action_unknown,
 ]
 
 
 class LLMService:
-	generate_text_agent = ChatOllama(
-		model=settings.OLLAMA_GEN_MODEL,
-		temperature=settings.AGENT_TEMPERATURE,
-		base_url=settings.OLLAMA_BASE_URL,
-	)
-	
-	classify_agent_llm = ChatOllama(
-		model=settings.OLLAMA_CLASSIFY_MODEL,
-		temperature=settings.AGENT_TEMPERATURE,
-		base_url=settings.OLLAMA_BASE_URL,
-	)
-
 	def __init__(self):
+		provider = settings.LLM_PROVIDER.lower()
+		self.provider = provider
+
+		self.generate_text_agent = self._build_model(
+			provider=provider,
+			model_name=self._get_generation_model(provider),
+		)
+		self.classify_agent_llm = self._build_model(
+			provider=provider,
+			model_name=self._get_classification_model(provider),
+		)
+
 		# bind action tools to classify subagent (bind_tools returns a new instance)
 		self.classify_agent = self.classify_agent_llm.bind_tools(ACTION_TOOLS)
+
+	def _get_generation_model(self, provider: str) -> str:
+		if provider == "openai":
+			return settings.OPENAI_GEN_MODEL
+		if provider == "google":
+			return settings.GOOGLE_GEN_MODEL
+		return settings.OLLAMA_GEN_MODEL
+
+	def _get_classification_model(self, provider: str) -> str:
+		if provider == "openai":
+			return settings.OPENAI_CLASSIFY_MODEL
+		if provider == "google":
+			return settings.GOOGLE_CLASSIFY_MODEL
+		return settings.OLLAMA_CLASSIFY_MODEL
+
+	def _build_model(self, provider: str, model_name: str):
+		if provider == "ollama":
+			return ChatOllama(
+				model=model_name,
+				temperature=settings.AGENT_TEMPERATURE,
+				base_url=settings.OLLAMA_BASE_URL,
+			)
+
+		if provider == "openai":
+			api_key = settings.OPENAI_API_KEY.strip()
+			if not api_key:
+				raise ValueError("OPENAI_API_KEY must be set when LLM_PROVIDER=openai")
+
+			try:
+				from langchain_openai import ChatOpenAI
+			except ImportError as exc:
+				raise ImportError("langchain-openai is required when LLM_PROVIDER=openai") from exc
+
+			kwargs = {
+				"model": model_name,
+				"temperature": settings.AGENT_TEMPERATURE,
+				"api_key": api_key,
+			}
+			if settings.OPENAI_BASE_URL.strip():
+				kwargs["base_url"] = settings.OPENAI_BASE_URL.strip()
+			return ChatOpenAI(**kwargs)
+
+		if provider == "google":
+			api_key = settings.GOOGLE_API_KEY.strip()
+			if not api_key:
+				raise ValueError("GOOGLE_API_KEY must be set when LLM_PROVIDER=google")
+
+			try:
+				from langchain_google_genai import ChatGoogleGenerativeAI
+			except ImportError as exc:
+				raise ImportError("langchain-google-genai is required when LLM_PROVIDER=google") from exc
+
+			return ChatGoogleGenerativeAI(
+				model=model_name,
+				temperature=settings.AGENT_TEMPERATURE,
+				google_api_key=api_key,
+			)
+
+		raise ValueError(f"Unsupported LLM_PROVIDER: {provider}")
 
 	async def generate_text(self, prompt: str, system_prompt: str | None = None) -> str:
 		"""
@@ -89,7 +155,7 @@ class LLMService:
 		else:
 			return str(response.content)
 
-	async def classify_intent(self, user_input: str) -> dict:
+	async def classify_intent(self, user_input: str, history_context: str | None = None) -> dict:
 		"""
 		classify user input into game actions using a subagent with action tools.
 		returns a dict with 'action' and optional 'direction' or 'target' keys.
@@ -100,9 +166,14 @@ class LLMService:
 		- take: picking up an item
 		- attack: attacking an enemy
 		- inventory: checking inventory
+		- health: checking current hp / health status
 		- unknown: unrecognized action
 		"""
+		context_block = history_context.strip() if history_context else "No prior turns yet."
 		prompt = f"""Analyze the player's input and call the appropriate action tool.
+
+	Recent adventure context:
+	{context_block}
 
 Player input: "{user_input}"
 
@@ -112,24 +183,25 @@ Use the available tools to classify the intent:
 - action_take: if they want to pick up an item (extract the item name)
 - action_attack: if they want to fight something (extract the target name)
 - action_inventory: if they want to check their items
+- action_health: if they ask about hp, health, injuries, or status
 - action_unknown: if none of the above apply
 
 Call the most appropriate tool based on the player's intent."""
 
-		response = await self.classify_agent.ainvoke(prompt)
+		known_tools = {tool.name: tool for tool in ACTION_TOOLS}
+
+		for attempt in range(3):
+			response = await self.classify_agent.ainvoke(prompt)
+
+			if hasattr(response, "tool_calls") and response.tool_calls:
+				tool_call = response.tool_calls[0]
+				tool_name = tool_call.get("name")
+				tool_args = tool_call.get("args", {})
+				action_tool = known_tools.get(tool_name)
+				if action_tool is not None:
+					return action_tool.invoke(tool_args)
+
+			if attempt < 2:
+				await asyncio.sleep(0.25 * (attempt + 1))
 		
-		# extract tool call from response
-		if hasattr(response, 'tool_calls') and response.tool_calls:
-			tool_call = response.tool_calls[0]
-			tool_name = tool_call['name']
-			tool_args = tool_call.get('args', {})
-			
-			# execute the tool to get the result
-			for action_tool in ACTION_TOOLS:
-				if action_tool.name == tool_name:
-					result = action_tool.invoke(tool_args)
-					print(f"Classified intent: {result}")
-					return result
-		
-		# fallback if no tool was called
 		return {"action": "unknown"}

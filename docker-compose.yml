@@ -1,0 +1,67 @@
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    env_file:
+      - .env
+    environment:
+      HOST: ${HOST:-0.0.0.0}
+      PORT: ${PORT:-8000}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:3000,http://localhost:5173,http://localhost:4173}
+      CORS_ALLOW_ORIGIN_REGEX: ${CORS_ALLOW_ORIGIN_REGEX:-^https?://(localhost|127\.0\.0\.1|0\.0\.0\.0)(:\d+)?$}
+      LLM_PROVIDER: ${LLM_PROVIDER:-google}
+      GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-}
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://ollama:11434}
+      OLLAMA_GEN_MODEL: ${OLLAMA_GEN_MODEL:-qwen3:8b}
+      OLLAMA_CLASSIFY_MODEL: ${OLLAMA_CLASSIFY_MODEL:-functiongemma:latest}
+      OPENAI_GEN_MODEL: ${OPENAI_GEN_MODEL:-gpt-4o-mini}
+      OPENAI_CLASSIFY_MODEL: ${OPENAI_CLASSIFY_MODEL:-gpt-4o-mini}
+      GOOGLE_GEN_MODEL: ${GOOGLE_GEN_MODEL:-gemini-3.1-pro-preview}
+      GOOGLE_CLASSIFY_MODEL: ${GOOGLE_CLASSIFY_MODEL:-gemini-1.5-flash}
+      GAME_MODE: ${GAME_MODE:-llm}
+      ENABLE_LLM_NARRATION: ${ENABLE_LLM_NARRATION:-true}
+      AGENT_TEMPERATURE: ${AGENT_TEMPERATURE:-0.7}
+      LLM_TIMEOUT_SECONDS: ${LLM_TIMEOUT_SECONDS:-12.0}
+    ports:
+      - "${BACKEND_PORT:-8000}:8000"
+    volumes:
+      - ./src/api/data:/app/data
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+      args:
+        VITE_API_URL: ${VITE_API_URL:-http://localhost:8000}
+    ports:
+      - "${FRONTEND_PORT:-3000}:3000"
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O-", "http://127.0.0.1:3000/"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  ollama:
+    image: ollama/ollama:latest
+    ports:
+      - "${OLLAMA_PORT:-11434}:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    profiles:
+      - with-ollama
+
+volumes:
+  ollama_data:
