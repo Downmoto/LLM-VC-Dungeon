@@ -11,6 +11,7 @@ Thumbs.db
 
 # Environment variables (project-wide)
 .env.local
+.env
 
 # Logs
 *.log
