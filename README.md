@@ -1,45 +1,38 @@
 # LLM-VC-Dungeon
 
-a voice-first adventure game powered by large language models
+a web-based adventure game with a terminal-styled frontend powered by large language models
 
 ## overview
 
-traditional text adventures force players to memorize specific commands and syntax. this project eliminates that friction by letting you simply speak your intentions in natural language. an ai dungeon master translates your voice into game logic and responds with dynamic audio narration.
+traditional text adventures force players to memorize specific commands and syntax. this project reduces that friction by allowing natural-language text input and translating it into structured game logic. an ai dungeon master layer interprets intent and produces narrative responses while deterministic backend rules preserve state consistency.
 
 ## architecture
 
-dual-stack design supporting both cloud and self-hosted deployment:
+current implementation focuses on a frontend/backend split:
 
-**cloud stack** (saas deployment)
-- stt: groq whisper-large-v3-turbo
-- logic router: function-gemma-it (self-hosted)
-- narrative: groq llama-3.3-70b
-- tts: lemonfox.ai
-- frontend: svelte 5 (vercel)
-- backend: python fastapi (railway/render)
-
-**self-hosted stack** (local docker)
-- stt: faster-whisper
-- logic: function-gemma-it (gguf)
-- narrative: llama-3-8b-instruct (gguf)
-- tts: piper tts
-- all components run locally in a single container
+- frontend: svelte 5 web ui with a terminal-styled interface
+- backend: python fastapi game orchestration
+- llm integration: local ollama-backed classification and generation flows
+- persistence: json save/load game state
 
 ## tech stack
 
 - **frontend**: svelte 5 with typescript
 - **backend**: python with fastapi
-- **transport**: websockets for real-time audio streaming
-- **models**: function gemma for intent classification, llama for narrative generation
+- **transport**: http json api
+- **models**: ollama-hosted models for intent classification and narrative generation
 
 ## how it works
 
-1. speak your command into the browser
-2. audio transcribed to text (stt)
-3. llm translates natural language to structured json function calls
-4. game state updates based on the action
-5. narrative llm generates story response
-6. text converted to speech and played back
+1. enter a natural-language command in the web ui (terminal-styled interface)
+2. llm classifies intent into structured game actions
+3. backend updates deterministic game state
+4. narrative llm generates a contextual story response
+5. updated state is persisted for continued play
+
+## scope note
+
+voice input/output was explored in early planning milestones but is currently de-scoped and not supported in the active implementation.
 
 ## development
 
