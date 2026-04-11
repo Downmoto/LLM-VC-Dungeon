@@ -1,0 +1,47 @@
+== Testing and Validation
+
+Testing was introduced in Milestone 3 and expanded substantially in Milestone 4. The final backend test suite contains 43 tests across four modules, run with `pytest` and `pytest-asyncio`. All tests target the programmatic execution paths and mock LLM interactions where needed, making the suite runnable without any active LLM provider.
+
+=== Test Module Breakdown
+
+[cols="3,1,4", options="header"]
+|===
+| Module | Tests | Coverage Focus
+
+| `test_intent.py`
+| 14
+| Parser correctness across all action types, conversational inflections, LLM tool-binding retry logic, unknown action fallback
+
+| `test_game_turns.py`
+| 18
+| Move validation and room transitions, item pickup with fuzzy matching, combat with damage and retaliation, multi-turn HP depletion and game-over signaling, history truncation, visited-room return messaging, LLM fallback behavior in hybrid and strict modes, quota/throttle detection
+
+| `test_generator_programmatic.py`
+| 6
+| Theme selection in deterministic mode, biome-weighted room content, difficulty scaling of enemy HP across room indices, full ten-room dungeon generation roundtrip, strict-LLM error handling when provider is unavailable
+
+| `test_api_map.py`
+| 5
+| Room graph serialization for the map endpoint, current room tracking in the response, path traversal prevention in save/load paths, history context forwarding to LLM calls
+
+|===
+
+=== Intent Parser Tests
+
+The fourteen intent tests exercise both breadth and robustness of the parser. Coverage includes every directly supported action: movement with cardinal names, directional abbreviations, and colloquial aliases; item take commands with varying phrasing; attack commands with explicit and implicit targets; inventory and health queries. Additional tests confirm that conversational inflections, phrasing such as "i grab the key" or "i'm attacking," are correctly normalized to their canonical action types. The LLM tool-binding path is tested through mocked provider calls that simulate retry failures, confirming that the classifier returns an `unknown` result after three failed attempts rather than raising an exception.
+
+=== Game Turn Tests
+
+The eighteen game turn tests validate the full turn pipeline end to end against a synthetic game state. Tests confirm that movement into a valid exit updates the player's room, that movement into a non-existent direction returns an appropriate error message, and that revisiting a room produces different output than the first visit. Item pickup tests confirm token-overlap matching selects the correct item when the player's wording only partially matches the item name, and that items are removed from the room and added to inventory. Combat tests verify damage calculation, enemy retaliation, and HP mutation across multiple turns, culminating in a game-over flag when HP reaches zero. History truncation behavior is validated by forcing a session past the eight-turn recency window and confirming the summary is populated and recent turns are preserved. Two tests specifically exercise mode-dependent behavior: one confirms that `hybrid` mode falls back to LLM classification for an unknown input, and one confirms that `llm` strict mode raises a hard error when no provider is configured.
+
+=== Generator Tests
+
+The six generator tests focus on programmatic correctness. A theme generation test confirms that deterministic mode selects a preset theme rather than calling the LLM. Biome content tests confirm that generated rooms contain items and enemies consistent with the chosen biome's tables. The difficulty scaling test compares enemy HP in early rooms against enemy HP in late rooms, verifying that the progression band is applied correctly. A full dungeon roundtrip test generates all ten rooms and asserts structural completeness: ten rooms present, all exits bidirectional, all rooms containing at least one item or enemy. A final test confirms that generating a dungeon with `GAME_MODE=llm` and no provider configured raises a descriptive error rather than silently producing empty content.
+
+=== API Map Tests
+
+The five API map tests validate the map endpoint contract and the security of the file system access layer. Tests confirm that the `/api/game/map` response includes the correct number of rooms and correctly identifies the player's current room. The most important security test constructs a load request with a path traversal payload, a filename containing `../` segments, and asserts that the backend rejects it rather than reading an arbitrary file, confirming the `os.path.commonpath()` boundary check is effective.
+
+=== What Was Not Tested
+
+Frontend behavior is not covered by the test suite. End-to-end interaction between the Svelte terminal and the backend API was validated manually during development but no automated integration tests exist. The intent classification evaluation dataset described in Milestone 1, a formal benchmark of natural language input accuracy, was not constructed. These represent the primary gaps in validation coverage and are noted as areas for future work.

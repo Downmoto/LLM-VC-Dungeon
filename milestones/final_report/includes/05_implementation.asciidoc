@@ -1,0 +1,71 @@
+== Implementation
+
+=== Backend Game Engine
+
+The game engine is the central coordinator of the backend. Its primary entry point is `process_turn()` in `game.py`, which accepts a player input string and a game state object and returns a completed turn response. The engine's contract is strict: regardless of whether LLM services are available, `process_turn()` must return a valid response with a canonical action result.
+
+==== Game State Model
+
+All game state is represented by a hierarchy of Pydantic models defined in `models.py`. The root object, `GameState`, holds the current theme string, a `PlayerState`, a dictionary of rooms keyed by room ID, a history list of action/result strings, and a `history_summary` string. `PlayerState` carries the player's current and maximum HP, their inventory as a list of `Item` objects, and their current room ID. Each `Room` holds a description, a map of directional exits to room IDs, lists of `Item` and `Enemy` objects, and an `extra_info` dictionary for persisted facts. Items carry a name, description, and type from the `ItemType` enum. Enemies carry a name, HP and maximum HP, type from the `EnemyType` enum, a description, and their own `extra_info` dictionary.
+
+The `extra_info` dictionaries on rooms, items, and enemies are the foundation of the persistent fact system. When a player asks a factual question about an entity, the engine stores the answer there and returns it on subsequent queries to the same entity, giving the illusion of a consistent world without repeated LLM calls.
+
+==== Turn History and Summarization
+
+The history list grows with each turn as a string pair of the form `"Action: <input> | Result: <narrative>"`. The engine retains the most recent eight turns in full and rolls older turns into a rolling `history_summary` string, which is truncated to 700 characters. When narrative enrichment is requested, the LLM receives the full recent window plus the summary as context, bounding the context window growth regardless of session length.
+
+==== Action Execution
+
+After intent classification resolves the player's input to a structured action, the engine executes it against the world state:
+
+* *Move:* validates that the requested exit exists on the current room, logs a distinct "You return to..." message for previously visited rooms, triggers background generation of unvisited neighbors, and updates the player's current room ID.
+* *Look:* returns the current room's description along with visible enemies and items.
+* *Take:* matches the player's target string against item names using token-overlap scoring, adds the matched item to inventory, and removes it from the room.
+* *Attack:* resolves combat between the player and a matched enemy. Enemies with ten or fewer HP are defeated in one hit; stronger enemies take four to twelve points of random damage per round. Surviving enemies retaliate for two to eight damage. When player HP reaches zero, the `game_over` flag is set in the response.
+* *Inventory:* returns the contents of the player's inventory.
+* *Health:* returns the player's current and maximum HP.
+* *Query:* extracts a subject entity from the input, checks its `extra_info` for a cached answer, and if absent, calls the LLM to generate and store a fact.
+
+=== Intent Classification
+
+Intent classification is implemented in `intent.py` as two parallel paths that share an output schema.
+
+==== Programmatic Parser
+
+The parser normalizes the input string by lowercasing and stripping punctuation, then tokenizes it. A set of known verb roots: move, look, take, attack, inventory, health, query, are matched against the normalized tokens. Direction words including cardinal names, abbreviations, and colloquial aliases such as "up" for north and "left" for west are extracted via a lookup table. For actions that require a target, the parser filters stopwords and scores candidate entity names from the current room's items and enemies using token overlap with the remaining input tokens. The highest-scoring match above a minimum threshold is selected as the target. Inputs that match no known verb pattern return an `unknown` action, which triggers the LLM fallback path in hybrid mode.
+
+==== LLM Tool-Binding Classifier
+
+The LLM path uses LangChain's tool-binding interface to bind a set of `@tool`-decorated functions, one for each supported action, to the language model. The model is prompted with the player input and the current room context and selects the appropriate tool call, returning a structured JSON object that maps directly to the same intent schema as the parser. If the model fails to produce a valid structured response, the classifier retries up to three times before returning an `unknown` fallback.
+
+=== Dungeon Generation
+
+Dungeon generation is handled by `generator.py` and runs at new game start and incrementally as the player explores.
+
+==== Topology
+
+The dungeon layout is a ten-room graph generated via BFS on a two-dimensional grid. Starting from a central origin room, the generator expands in random directions, placing rooms and establishing bidirectional exits. The north/south and east/west relationships are always symmetric: a room reachable going north has a south exit back to its source. The resulting graph is connected but not necessarily a simple chain; branching paths and dead ends emerge from the random expansion order.
+
+==== LLM Generation Path
+
+When an LLM provider is available and configured, the generator issues a single prompt requesting a complete dungeon JSON structure for all ten rooms in one call. The prompt includes the selected theme and a strict output schema. The response is validated against the schema, and malformed or incomplete responses trigger up to three retries before falling back to the programmatic path. The single-call approach is preferable to per-room calls because it allows the LLM to produce thematically coherent content across the whole dungeon rather than rooms that were generated independently.
+
+==== Programmatic Generation Path
+
+The programmatic path infers a biome from the theme string and populates rooms from biome-specific content tables. Each biome, mine, crypt, arcane, and volcanic, defines tables of room descriptors, environmental features, item names, and enemy names and types, ensuring that content is internally coherent without requiring an LLM. Room difficulty scales with the room's index in the dungeon: early rooms spawn fewer and weaker enemies, while later rooms have higher spawn rates and enemy HP drawn from a higher band. This creates a natural sense of progression without any runtime AI involvement.
+
+==== Incremental Expansion
+
+When a player moves into a room that has not yet been populated, the engine triggers background generation of the newly entered room and its unvisited neighbors via FastAPI's `BackgroundTasks`. This avoids blocking the turn response on generation while ensuring that the next rooms are ready before the player reaches them.
+
+=== LLM Integration
+
+The LLM service layer in `llm.py` provides a unified call interface over all supported providers. Provider selection and model identifiers are read from environment variables at startup. The service detects quota exhaustion and rate-limit errors by parsing error messages for patterns such as "retry in 48.3s" or structured `retryDelay` fields. When throttling is detected, the provider is marked unavailable for the extracted delay period, during which all LLM calls short-circuit to the programmatic fallback without attempting network requests. This mechanism prevents cascading failures during API quota events and ensures the game remains playable regardless of provider status.
+
+=== Frontend Terminal UI
+
+The frontend is built around a terminal metaphor. `Terminal.svelte` renders a scrolling output log and accepts player input through a text field. Submitted input passes through `commandSystem.ts`, which checks for a leading `/` to dispatch slash commands locally and forwards everything else to the backend API client.
+
+System commands cover the full session lifecycle: `/new` starts a new game, `/save` persists the current state, `/load` restores a saved session, `/theme` sets the dungeon theme before generation, `/help` prints available commands, `/map` requests the room graph and renders it as an ASCII grid, and `/api-check` fetches the health metadata and displays active endpoints and provider status.
+
+Natural language input is sent to `POST /api/game/turn`, and the response is displayed in the terminal with narrative text followed by game state metadata. Svelte 5 runes maintain reactive copies of player HP, inventory size, and current room for display in the terminal header.

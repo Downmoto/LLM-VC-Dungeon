@@ -1,0 +1,29 @@
+== Challenges and Lessons Learned
+
+=== De-scoping Voice Input
+
+The most visible departure from the original project vision was the removal of speech-to-text input and text-to-speech output. The Milestone 1 design called for a fully voice-first interface: the player would speak to the browser, and the game would respond with synthesized audio narration. By Milestone 2, voice output via TTS had been prototyped but not integrated. By Milestone 3, voice input as a primary interface had been quietly set aside in favor of text.
+
+Several factors drove this decision. The Web Audio API imposes browser-specific restrictions on microphone access that vary across Chrome, Firefox, and Safari. Handling the full permissions lifecycle, stream management, and error recovery added substantial frontend complexity that was orthogonal to the game's core value. Speech-to-text transcription introduced a second layer of latency before intent classification could even begin, making the total round-trip time for a single player turn potentially in the three-to-five-second range on a consumer connection with a remote STT provider. And unlike a wrong classification, a transcription error is opaque to the player: they do not see the misheard text, so they cannot distinguish a game logic failure from a transcription failure. Text input eliminates that uncertainty entirely.
+
+The de-scoping was a pragmatic scope decision, not an abandonment of the vision. The natural language classification layer, which was always the harder problem, was built and validated. Voice input is a frontend integration layer on top of that classification capability and remains a viable extension.
+
+=== LLM Reliability on the Critical Path
+
+The most significant technical challenge of the implementation phase was that LLMs, when placed on the critical path for every game turn, are unreliable in ways that are difficult to handle gracefully. The problems manifested in three forms.
+
+The first was structured output consistency. Smaller models, including local Ollama models in the 7B to 8B parameter range, frequently produced intent classifications that failed schema validation: missing fields, incorrect types, or action names that did not match the expected enum values. Retry logic with exponential backoff helped, but a multi-retry pipeline on every turn compounded latency. The programmatic parser solved this completely for the common cases, reducing the LLM classification path to a fallback used only for genuinely ambiguous inputs.
+
+The second was latency. Even with a local model via Ollama, LLM inference for a single classification call took 800 to 1500 milliseconds on development hardware during active generation. For a game whose state changes on every input, that round-trip made the interface feel unresponsive. Moving classification to deterministic Python dropped turn latency to under 50 milliseconds for recognized inputs.
+
+The third was quota exhaustion. Cloud LLM providers impose rate limits and daily quotas that, during active development with multiple simultaneous sessions, were hit without warning. An unhandled quota error would crash the game turn entirely. The quota detection and cooldown mechanism in `llm.py` was built in direct response to several interrupted test sessions, and the design decision to make `GAME_MODE=programmatic` an option was a direct consequence of this experience.
+
+The broader lesson is that production LLM integrations require a fallback at every point where the model sits in a required code path. The hybrid architecture developed here, deterministic logic first, LLM enrichment only where it adds value and where failure is recoverable, is the pattern that should have been the starting design rather than an evolution reached through trial and error.
+
+=== State Consistency
+
+Early iterations placed too much responsibility on the LLM for maintaining game state. Responses included inventory references, room state descriptions, and entity facts generated at inference time rather than drawn from a persistent model. These LLM-generated state references frequently diverged from the actual game state tracked in the backend, producing situations where the narrative told the player they had picked up an item while the inventory list showed it was still in the room. The resolution was straightforward once the problem was understood: the deterministic engine owns all state mutations, and the LLM is given only the current verified state as context for enrichment. It may describe what it is told, but it cannot invent state that the engine does not confirm.
+
+=== Team Coordination
+
+The project was developed across three roles with distinct technical domains. The separation of frontend, AI engineering, and backend integration responsibilities worked well for parallel development but created integration friction at the API boundary. Early API contracts were implicit and changed without coordinated updates, causing frontend components to break silently when backend response shapes evolved. The Milestone 4 work of formalizing the turn response schema and adding explicit field documentation resolved the majority of these coordination issues. The lesson is that API contract documentation is not a finishing step; it is a precondition for effective parallel work.

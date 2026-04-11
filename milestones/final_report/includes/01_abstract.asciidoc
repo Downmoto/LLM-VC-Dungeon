@@ -1,0 +1,7 @@
+== Abstract
+
+LLM-VC-Dungeon is a web-based text adventure game that replaces rigid command-parser syntax with natural language input, allowing players to describe their intentions in plain speech and receive dynamically generated narrative responses. The project was developed over four iterative milestones, beginning with a voice-first multimodal concept and converging on a robust, fully containerized full-stack application backed by a deterministic game engine with optional LLM augmentation.
+
+The system is composed of a FastAPI backend that manages game state, intent classification, and dungeon generation, paired with a SvelteKit terminal-style frontend. A three-mode runtime configuration, programmatic, hybrid, and strict-LLM, allows the engine to operate reliably without any LLM provider while preserving richer narrative output when one is available. Multi-provider LLM support targets OpenAI, Google Gemini, and self-hosted Ollama models.
+
+The final deliverable supports a complete game loop: players can explore procedurally generated dungeons, fight enemies, collect items, query lore, save and restore sessions, and view an ASCII map of discovered rooms. A backend test suite of 43 tests across four modules validates intent parsing, turn resolution, generation correctness, and API safety. This report documents the technical design of the final system, the architectural decisions made across each milestone, and the lessons learned from migrating a heavily LLM-dependent prototype into a reliable, deterministic core.

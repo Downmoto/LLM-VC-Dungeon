@@ -1,0 +1,93 @@
+== Results
+
+=== Delivered Functionality
+
+The final deliverable is a fully playable, containerized text adventure game with a complete game loop and a stable API contract. The following table summarizes feature status against the original and evolved project scope.
+
+[cols="3,2,4", options="header"]
+|===
+| Feature | Status | Notes
+
+| Natural language input
+| Delivered
+| Text-based; voice input de-scoped
+
+| Intent classification
+| Delivered
+| Programmatic parser + optional LLM tool-binding
+
+| Dungeon generation
+| Delivered
+| Procedural biome tables + optional LLM single-call path
+
+| Movement and exploration
+| Delivered
+| BFS 10-room graph with bidirectional exits
+
+| Combat system
+| Delivered
+| Deterministic damage/retaliation, game-over signaling
+
+| Item pickup and inventory
+| Delivered
+| Token-overlap fuzzy matching
+
+| Lore query with fact persistence
+| Delivered
+| `extra_info` stored on rooms, items, enemies
+
+| Save and load
+| Delivered
+| JSON persistence with path traversal protection
+
+| ASCII map display
+| Delivered
+| `/map` command renders discovered rooms as grid
+
+| LLM narrative enrichment
+| Delivered
+| Optional; multi-provider with quota/throttle fallback
+
+| Multi-provider LLM support
+| Delivered
+| OpenAI, Gemini, Ollama
+
+| Containerized deployment
+| Delivered
+| Docker Compose with optional Ollama profile
+
+| Backend test suite
+| Delivered
+| 43 tests across 4 modules
+
+| Voice input (STT)
+| De-scoped
+| See Section 8
+
+| TTS audio output
+| De-scoped
+| See Section 8
+
+| Frontend automated tests
+| Not delivered
+| Manual validation only
+
+| Intent classification benchmark dataset
+| Not delivered
+| Planned in M1, superseded by unit tests
+
+|===
+
+=== Playable State
+
+A new game session begins with the player selecting a theme, or accepting a generated one, after which the dungeon is populated and the player is placed in the starting room. The terminal displays the room description, visible items, and available exits. The player can type freely: movement commands in any phrasing, combat commands referencing enemies by partial name, item pickup requests, inventory and health queries, and lore questions are all resolved without syntax guidance.
+
+As the player moves through the dungeon, neighboring rooms are populated in the background. Enemies retaliate when attacked and track HP across turns. Items collected in one room persist in inventory across sessions if the player saves. The ASCII map builds incrementally as rooms are visited. When player HP reaches zero, the session ends with a game-over message.
+
+=== Runtime Mode Behavior
+
+In `programmatic` mode, all of the above works without any network request beyond the initial API call to the backend. Turn latency in this mode is bounded by local Python execution, typically under 50 milliseconds on a standard development machine. In `hybrid` mode, latency is the same for recognized inputs and adds one LLM round-trip only for inputs the parser cannot classify. In `llm` mode, every turn passes through the LLM, making narration the primary output but introducing provider latency on the critical path.
+
+=== Test Results
+
+All 43 backend tests pass. The test suite runs in under ten seconds on a standard development machine. No known test failures exist at the time of submission.
