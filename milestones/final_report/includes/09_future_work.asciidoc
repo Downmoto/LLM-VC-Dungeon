@@ -1,0 +1,25 @@
+== Future Work
+
+=== Voice Input and Audio Output
+
+Restoring the original voice-first vision remains the most significant open direction. The natural language classification layer is complete; adding voice input is a matter of integrating a browser speech-to-text pipeline that feeds text into the existing turn API. The architecture is already designed for it: the frontend command system routes text strings to the backend regardless of whether they originated from keyboard input or transcription. A Faster-Whisper self-hosted STT integration or a browser-native Web Speech API binding would both be compatible with the current backend without modification. TTS output would similarly attach as a post-processing layer on the narrative response string, calling a provider such as Piper or a cloud TTS API before rendering the terminal line. Completing this integration would realize the Milestone 1 vision.
+
+=== Frontend Automated Testing
+
+The test suite covers the backend thoroughly but has no frontend equivalent. A Playwright end-to-end suite would allow automated validation of the full turn flow from browser input to terminal output, including command dispatch, API integration, and reactive state updates. Given that frontend bugs were discovered manually during integration testing, this gap represents genuine risk for continued development.
+
+=== Intent Classification Accuracy Benchmark
+
+The Milestone 1 data strategy called for a synthetic dataset of 200 to 300 natural language command to expected function-call pairs. This dataset was never built. Constructing it using a strong model to generate diverse phrasings, and running the programmatic parser against it, would give a concrete measurement of parser coverage and identify categories of phrasing the parser fails on. The result would drive targeted improvements to the token-overlap scoring and normalization logic.
+
+=== Expanded Combat and Item Systems
+
+The current combat system is intentionally minimal: a single damage range applied uniformly across all enemies, with a simple retaliation roll. A richer combat system could include weapon type modifiers from the player's equipped item, enemy-specific resistances and abilities drawn from the `EnemyType` model, status effects such as poisoning or stunting, and multi-turn spell casting. Item types beyond `WEAPON` and `POTION`; `ARMOR`, `KEY`, and `TREASURE` are already defined in the `ItemType` enum but are not yet mechanically active.
+
+=== Persistent Cloud Save and Multiplayer
+
+Sessions currently persist as local JSON files on the backend host. A database-backed persistence layer would allow sessions to survive container restarts, support multiple concurrent users, and enable cloud-hosted deployment where the backend is not stateful. The `GameState` Pydantic model serializes cleanly to JSON already, making a migration to a document store such as MongoDB straightforward.
+
+=== Incremental Streaming Responses
+
+Long narrative responses currently block until the LLM finishes generation before the backend responds. Streaming the LLM output token by token to the frontend via server-sent events or a streaming HTTP response would make the game feel more responsive and would replicate the character-by-character reveal common in AI chat interfaces, which suits the terminal aesthetic well.

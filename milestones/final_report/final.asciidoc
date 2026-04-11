@@ -1,0 +1,29 @@
+= LLM-VC-Dungeon: Final Capstone Report
+:authors: Arad Fadaei; Mahboobeh Yasini; Johnpaul Tamburro
+:revnumber: 1.0
+:revdate: April 10, 2026
+:doctype: book
+:title-page:
+:toc:
+:toclevels: 3
+:includedir: includes
+
+include::{includedir}/01_abstract.asciidoc[]
+
+include::{includedir}/02_introduction.asciidoc[]
+
+include::{includedir}/03_project_evolution.asciidoc[]
+
+include::{includedir}/04_system_architecture.asciidoc[]
+
+include::{includedir}/05_implementation.asciidoc[]
+
+include::{includedir}/06_testing.asciidoc[]
+
+include::{includedir}/07_results.asciidoc[]
+
+include::{includedir}/08_challenges.asciidoc[]
+
+include::{includedir}/09_future_work.asciidoc[]
+
+include::{includedir}/10_conclusion.asciidoc[]

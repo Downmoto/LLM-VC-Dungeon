@@ -1,0 +1,31 @@
+== System Architecture
+
+=== Overview
+
+LLM-VC-Dungeon is a client-server web application. The backend is a Python FastAPI service that owns all game state, intent resolution, dungeon generation, and LLM orchestration. The frontend is a SvelteKit single-page application that presents a terminal-style interface to the player. The two communicate over a standard HTTP REST API. Both services are containerized and launched together via Docker Compose.
+
+=== Technology Stack
+
+The backend is written in Python and uses FastAPI as the web framework, with Pydantic models providing schema validation throughout. LLM orchestration is handled by LangChain, which abstracts provider differences and provides the tool-binding infrastructure used for structured intent classification. Game state is persisted as JSON files in a sandboxed `data/` directory.
+
+The frontend is written in TypeScript using SvelteKit with Svelte 5 runes for reactive state management. The terminal UI is rendered in the browser and communicates with the backend through a typed API client. No frontend framework or UI component library is used; the terminal appearance is built directly in Svelte components.
+
+LLM providers are pluggable at runtime via environment variables. The system supports OpenAI (GPT-4o-mini), Google Gemini (gemini-1.5-flash for classification, gemini-2.5-pro-preview for generation), and Ollama (functiongemma, qwen3:8b and others) for local self-hosted inference.
+
+=== Component Breakdown
+
+The backend is organized into four primary modules. The game engine (`game.py`) owns the turn resolution pipeline: it receives a player input, coordinates intent classification, executes the resolved action against the world state, optionally requests narrative enrichment from the LLM, and returns a structured response. The intent module (`intent.py`) implements both the deterministic parser and the LLM tool-binding classifier. The generator (`generator.py`) handles dungeon topology creation and room content population using both procedural tables and LLM generation. The LLM service (`llm.py`) provides a unified interface over all supported providers, including quota detection and throttle recovery.
+
+The frontend is organized around a core `Terminal.svelte` component that handles input dispatch and output rendering. A `commandSystem.ts` module routes slash commands to their handlers deterministically, while natural language inputs are forwarded to the backend API. A typed `client.ts` handles all API communication. Reactive state, including player HP, inventory, and room metadata, is managed with Svelte 5 runes.
+
+=== Runtime Modes
+
+The system's behavior is governed by two environment flags. `GAME_MODE` accepts three values: `programmatic` runs the parser-only path with no LLM calls anywhere in the turn pipeline; `hybrid` runs the parser first and falls back to LLM classification only for inputs the parser cannot resolve; `llm` requires a configured LLM provider and fails loudly if one is unavailable. A second flag, `ENABLE_LLM_NARRATION`, independently controls whether narrative enrichment is requested after turn resolution. This means, for example, that a hybrid session can produce plain deterministic output while still routing ambiguous intent to the LLM, or that a fully programmatic session can receive enriched narrative if the narration flag is set and a provider is available.
+
+=== Data Flow for a Single Turn
+
+A single player turn flows through the system as follows. The player submits text input through the terminal. If the input begins with `/`, the frontend dispatches it to the command handler directly. Otherwise, the input is sent to `POST /api/game/turn` with a session identifier. The backend retrieves the current `GameState` from the JSON save file, runs intent classification according to the configured mode, executes the resolved action to produce a canonical result string, optionally calls the LLM for narrative enrichment, appends the turn to the history log, persists the updated state, and returns a structured response containing the narrative, current room ID, player HP, inventory size, and game-over flag. The frontend updates its reactive state from the response fields and appends the output to the terminal display.
+
+=== Deployment
+
+Docker Compose defines two services: `backend` and `frontend`. The backend container exposes the FastAPI app via Uvicorn on port 8000. The frontend container serves the SvelteKit build via Node on port 3000. An optional third service profile activates an Ollama container for fully self-contained local inference. Health check endpoints on both services allow the frontend diagnostics screen to report live provider and endpoint status.

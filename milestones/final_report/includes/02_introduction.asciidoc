@@ -1,0 +1,29 @@
+== Introduction
+
+=== The Problem
+
+Traditional text-based adventure games present players with a deceptively simple interface that carries a significant hidden cost: memorization. Classics of the genre, and even modern interactive fiction, rely on rigid verb-noun command parsers that accept only specific syntactic forms. A player who types "examine the chest" when the parser expects "look chest" is met with a failure message. One who tries "use torch on door" when the system wants "light door" is similarly blocked. This cognitive overhead shifts the player's attention away from the narrative and onto the mechanics of communicating with the machine, breaking immersion precisely when it should be strongest.
+
+The effects of this friction are well understood. Players either memorize command vocabularies, consult in-game help repeatedly, or abandon play entirely when their natural phrasing goes unrecognized. The interface becomes an obstacle rather than a transparent medium for storytelling.
+
+=== The Vision
+
+The goal of this project is to remove that obstacle entirely. LLM-VC-Dungeon is designed so that players need not learn any command syntax. Instead, they type natural language: "I want to search the room carefully" or "attack the goblin with my sword" or "what do I know about this ruin?" The system resolves these inputs into structured game actions, advances the world state deterministically, and optionally returns narrated responses in the voice of a dungeon master.
+
+The original concept went further still: a "Voice First" design where players would speak aloud and receive synthesized audio narration in return, making the interface truly invisible. That vision informed the early architecture and remains a long-term aspiration, but the project ultimately de-scoped live voice input in favor of a stable, text-based natural language pipeline. The reasoning behind that decision is documented fully in the challenges section of this report.
+
+=== Scope and Contributions
+
+This project is a full-stack web application. The backend is a FastAPI service responsible for all game logic, LLM orchestration, and persistence. The frontend is a SvelteKit terminal-style UI that handles player input and renders game output. The two communicate over a standard HTTP API. Deployment is containerized via Docker Compose.
+
+The primary technical contributions of the project are:
+
+* A deterministic game engine for a text adventure that handles movement, combat, item management, and lore queries without requiring any LLM at runtime.
+* A flexible intent classification layer that switches between a rule-based parser and LLM tool-binding depending on runtime configuration.
+* A hybrid dungeon generator that uses procedural biome tables as a reliable foundation and LLM-generated content as an optional enrichment layer.
+* A multi-provider LLM integration with quota-aware throttling and graceful fallback.
+* A 43-test backend validation suite covering the full game turn lifecycle.
+
+=== Report Structure
+
+The remainder of this report is organized as follows. Section 3 traces the project's evolution across all four milestones, explaining the key architectural pivots and the reasoning behind them. Section 4 describes the final system architecture. Section 5 details the implementation of each major subsystem. Section 6 presents the testing strategy and validation results. Section 7 describes the final state of the deliverable. Section 8 reflects on the challenges encountered and lessons learned. Section 9 outlines directions for future work, and Section 10 concludes.
