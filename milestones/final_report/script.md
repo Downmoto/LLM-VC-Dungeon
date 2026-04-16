@@ -100,9 +100,9 @@
 ## slide 10 — testing & validation
 **speaker: johnpaul** · *~1 min*
 
-> "On the testing side — we have 43 backend tests covering the most critical paths in the system.
+> "On the testing side,  we have 43 backend tests covering the most critical paths in the system.
 >
-> The intent tests validate parser correctness, fuzzy matching, and LLM retry fallback behavior. The game turn tests cover movement, combat, game over conditions, history truncation, and mode switching. The generator tests verify biome tables and difficulty scaling. And the API map tests check the endpoint contract and specifically test for path traversal prevention — a security concern we flagged early.
+> The intent tests validate parser correctness, fuzzy matching, and LLM retry fallback behavior. The game turn tests cover movement, combat, game over conditions, history truncation, and mode switching. The generator tests verify biome tables and difficulty scaling. And the API map tests check the endpoint contract and specifically test for path traversal prevention which was a security concern we flagged early.
 >
 > All 43 pass clean."
 
@@ -111,11 +111,11 @@
 ## slide 11 — project evolution
 **speaker: johnpaul** · *~1 min*
 
-> "The project went through four milestones across the semester. We started in January with a voice-first concept and a dual-stack design — we even did a financial model projecting about $0.00063 per game turn.
+> "The project went through four milestones across the semester. We started in January with a voice-first concept and a dual-stack design. We even did a financial model projecting about $0.00063 per game turn.
 >
 > In February we added save and load, procedural generation, and Ollama support for local models. In March we introduced the GAME_MODE flag, rebuilt the parser, and added the biome tables along with the first test suite. And in the final milestone we containerized everything with Docker Compose, hardened the API, and got to 43 tests.
 >
-> Each milestone was a real evolution — the architecture changed significantly at each step."
+> Each milestone was a real evolution that had the architecture change significantly at each step."
 
 ---
 
@@ -124,29 +124,29 @@
 
 > "A few honest lessons.
 >
-> The biggest one — LLMs on the critical path fail in production. That's not theoretical, we hit it. Quota exhaustion mid-demo, JSON responses that didn't parse, inconsistent behavior across providers. The programmatic mode exists because of that experience.
+> The biggest one: LLMs on the critical path can fail in production. That's not theoretical, we hit it. Quota exhaustion mid testing, JSON responses that didn't parse, inconsistent behavior across providers. The programmatic mode exists because of that experience.
 >
-> The second lesson was state ownership. Early versions let the LLM describe state it didn't actually track. The engine would say one thing, the narrative would say another. We fixed that by making the engine the single source of truth — it owns all mutations, the LLM only narrates what it's told.
+> The second lesson was state ownership. Early versions let the LLM describe state it didn't actually track. The engine would say one thing, the narrative would say another. We fixed that by making the engine the single source of truth as it owns all mutations, the LLM only narrates what it's told.
 >
-> And third — API contracts before parallel work. When Arad and I were working on backend and frontend simultaneously, silent breakage happened because shapes evolved independently. Writing the schema first would have saved us time."
+> And third, API contracts before parallel work. When we were working on backend and frontend simultaneously, silent breakage happened because shapes evolved independently. Writing the schema first would have saved us time."
 
 ---
 
 ## slide 13 — future work
 **speaker: mahboobeh** · *~45 sec*
 
-> "A few concrete next steps. Voice input is the obvious one — the classification problem is solved, so voice is really just a frontend integration layer on the existing turn API. We'd also like Playwright end-to-end tests since the frontend has zero automated coverage right now. Streaming LLM responses via server-sent events would fit the terminal aesthetic really well. And building out a proper intent classification benchmark — we designed a 200 to 300 pair evaluation dataset in Milestone 1 but never built it. That would give us concrete accuracy numbers for the parser."
+> "A few concrete next steps. Voice input is the obvious one as the classification problem is solved, so voice is really just a frontend integration layer on the existing turn API. We'd also like Playwright end-to-end tests since the frontend has zero automated coverage right now. Streaming LLM responses via server-sent events would fit the terminal aesthetic really well. And building out a proper intent classification benchmark, something we designed as a 200 to 300 pair evaluation dataset in Milestone 1 but never built it. That would give us concrete accuracy numbers for the parser."
 
 ---
 
 ## slide 14 — conclusion
 **speaker: mahboobeh** · *~45 sec*
 
-> "So to wrap up — we set out to fix the syntax friction that makes text adventure interfaces feel like obstacles. What we built is a game engine where the parser is invisible and the story is the interface.
+> "So to wrap up, we set out to fix the syntax friction that makes text adventure interfaces feel like obstacles. What we built is a game engine where the parser is invisible and the story is the interface.
 >
 > The generalizable pattern we landed on is: deterministic core plus LLM enrichment layer equals a resilient AI-augmented system. The engine is correct by default. The LLM makes it richer when it can. The game never breaks when it can't.
 >
-> And the original voice vision is genuinely reachable from here — completing it is an integration milestone, not a research problem. Thank you."
+> And the original voice vision is genuinely reachable from here and completing it is an integration milestone, not a research problem. Thank you."
 
 ---
 
