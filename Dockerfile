@@ -12,7 +12,7 @@ COPY src/api/requirements.txt ./requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY src/api/app ./app
-COPY src/api/data ./data
+RUN mkdir -p ./data
 
 ENV HOST=0.0.0.0 \
     PORT=8000
@@ -20,6 +20,6 @@ ENV HOST=0.0.0.0 \
 EXPOSE 8000
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
-  CMD curl -fsS http://localhost:8000/ || exit 1
+  CMD curl -fsS http://localhost:${PORT:-8000}/ || exit 1
 
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD sh -c "uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"
