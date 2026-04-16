@@ -100,6 +100,31 @@ style: |
     color: #888;
     font-size: 1.1rem;
   }
+  section.impl-slide {
+    font-size: 1.05rem;
+    padding: 2rem 2.5rem;
+  }
+  section.impl-slide h1 {
+    font-size: 2rem;
+    margin-bottom: 0.6em;
+  }
+  section.impl-slide .columns {
+    gap: 2em;
+    margin: 1em 0;
+  }
+  section.impl-slide ul, section.impl-slide ol {
+    line-height: 1.8;
+    padding-left: 1.4em;
+  }
+  section.impl-slide li {
+    margin: 0.25em 0;
+  }
+  section.impl-slide p {
+    margin: 0.7em 0;
+  }
+  section.impl-slide strong {
+    font-size: 1.05em;
+  }
   .tag {
     display: inline-block;
     background: #1a1a1a;
@@ -213,6 +238,104 @@ Error messages are parsed for retry delays. When quota is hit, the provider is m
 ## Live Demo
 
 *explore*
+
+---
+
+<!-- _class: impl-slide -->
+
+# Game Engine & State Model
+
+`process_turn(input, state) → TurnResponse` — the single entry point
+
+<div class="columns">
+<div>
+
+**Action execution**
+
+- **Move** — validate exit, update room, trigger background gen
+- **Look** — return description + visible entities
+- **Take** — token-overlap match against room items
+- **Attack** — damage calc; enemies retaliate; HP=0 sets `game_over`
+- **Query** — check `extra_info` cache → LLM on miss, store result
+
+</div>
+<div>
+
+**State model (Pydantic)**
+
+- `GameState` → `PlayerState` + `Room[]`
+- `Room` / `Enemy` / `Item` each carry `extra_info: dict`
+- `extra_info` is the **persistent fact cache** — LLM answers stored on first query, returned instantly on repeat
+- History: last **8 turns** full + rolling **700-char summary**
+
+</div>
+</div>
+
+---
+
+<!-- _class: impl-slide -->
+
+# Intent Classification — Dual Path
+
+Both paths emit the same structured schema: `{ action, target }`
+
+<div class="columns">
+<div>
+
+**Programmatic parser**
+
+1. Lowercase + strip punctuation
+2. Match verb roots against known set
+3. Extract direction via alias table (`"left"` → `west`)
+4. Score entity candidates by token overlap
+5. No match → `unknown` action
+
+</div>
+<div>
+
+**Classifier tool-binding**
+
+1. Each action is a `@tool`-decorated function
+2. Model receives input + room context
+3. Selects the correct tool → structured JSON
+4. Retry up to 3× on malformed output
+5. Falls back to `unknown` on persistent failure
+
+</div>
+</div>
+
+**Hybrid mode:** parser runs first — LLM is invoked only when the parser returns `unknown`
+
+---
+
+<!-- _class: impl-slide -->
+
+# Dungeon Generation
+
+**Topology** — BFS on a 2D grid, 10-room connected graph, always bidirectional exits
+
+<div class="columns">
+<div>
+
+**LLM path** *(when available)*
+
+- Single prompt → all 10 rooms in one call
+- Validated against schema; up to 3 retries
+- Thematic coherence across the whole dungeon
+
+</div>
+<div>
+
+**Programmatic path** *(always available)*
+
+- Biome inferred from theme string
+- Content tables per biome: mine · crypt · arcane · volcanic
+- Difficulty scales with room index: later rooms → higher enemy HP band
+
+</div>
+</div>
+
+**Incremental expansion** — when a player enters an unvisited room, `BackgroundTasks` populates that room and its unvisited neighbors without blocking the turn response
 
 ---
 

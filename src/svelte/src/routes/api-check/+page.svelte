@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { apiClient, type HealthResponse } from '$lib/api/client';
+  import { apiClient, API_BASE_URL, type HealthResponse } from '$lib/api/client';
   import Terminal from '$lib/components/Terminal.svelte';
   import { createMessageLogger } from '$lib/utils/messageLogger.svelte';
 
@@ -74,10 +74,10 @@
         <span class="system-text">server endpoints:</span>
       </div>
       <div class="terminal-line">
-        <span class="dim-text">  backend:  http://localhost:8000</span>
+        <span class="dim-text">  backend:  {API_BASE_URL}</span>
       </div>
       <div class="terminal-line">
-        <span class="dim-text">  frontend: http://localhost:5173</span>
+        <span class="dim-text">  frontend: {typeof window !== 'undefined' ? window.location.origin : ''}</span>
       </div>
     </div>
   </div>
