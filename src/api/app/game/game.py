@@ -276,6 +276,117 @@ class GameEngine:
             return f"{clean_base} {boost}"
         return f"{clean_base}. {boost}"
 
+    def _build_inventory_prompt(
+        self,
+        theme: str,
+        inventory_items: list[str],
+        user_input: str,
+        room_description: str,
+        available_exits: list[str],
+        visible_items: list[str],
+    ) -> str:
+        exits_text = ", ".join(available_exits) if available_exits else "none"
+        room_items_text = ", ".join(visible_items) if visible_items else "none"
+        if inventory_items:
+            inv_text = ", ".join(inventory_items)
+        else:
+            inv_text = "nothing"
+        return f"""
+            Theme: {theme}
+            Current Room: {room_description}
+            Player asked: {user_input}
+            Player's inventory contains: {inv_text}
+
+            Task: Write 1-2 sentences directly answering what the player is carrying.
+            Constraints:
+            - focus on the inventory contents, not the room atmosphere.
+            - if inventory is empty, say so plainly but with flavour.
+            - do not mention room items as if the player owns them.
+            - after the prose, append exactly these two lines in plain text:
+              Directions: <comma-separated exits or "none">
+              Items: <comma-separated visible room item names or "none">
+            - the Directions and Items lines must match Available Exits and Visible Room Items exactly.
+            Available Exits: {exits_text}
+            Visible Room Items: {room_items_text}
+            """
+
+    def _build_health_prompt(
+        self,
+        theme: str,
+        hp: int,
+        max_hp: int,
+        user_input: str,
+        room_description: str,
+        available_exits: list[str],
+        visible_items: list[str],
+    ) -> str:
+        exits_text = ", ".join(available_exits) if available_exits else "none"
+        room_items_text = ", ".join(visible_items) if visible_items else "none"
+        return f"""
+            Theme: {theme}
+            Current Room: {room_description}
+            Player asked: {user_input}
+            Player HP: {hp}/{max_hp}
+
+            Task: Write 1-2 sentences describing the player's current health/condition.
+            Constraints:
+            - focus on the player's physical state, not the room.
+            - reflect how badly or well they are doing given {hp}/{max_hp} hp.
+            - after the prose, append exactly these two lines in plain text:
+              Directions: <comma-separated exits or "none">
+              Items: <comma-separated visible room item names or "none">
+            - the Directions and Items lines must match Available Exits and Visible Room Items exactly.
+            Available Exits: {exits_text}
+            Visible Room Items: {room_items_text}
+            """
+
+    def _build_combat_prompt(
+        self,
+        theme: str,
+        enemy_name: str,
+        enemy_defeated: bool,
+        player_damage_dealt: int,
+        enemy_damage_dealt: int,
+        player_hp: int,
+        player_max_hp: int,
+        user_input: str,
+        room_description: str,
+        available_exits: list[str],
+        visible_items: list[str],
+        remaining_enemies: list[str],
+    ) -> str:
+        exits_text = ", ".join(available_exits) if available_exits else "none"
+        room_items_text = ", ".join(visible_items) if visible_items else "none"
+        enemies_text = ", ".join(remaining_enemies) if remaining_enemies else "none"
+        if enemy_defeated:
+            outcome = f"the player killed the {enemy_name} with {player_damage_dealt} damage."
+        else:
+            outcome = (
+                f"the player struck the {enemy_name} for {player_damage_dealt} damage, "
+                f"then the {enemy_name} retaliated for {enemy_damage_dealt} damage. "
+                f"player is now at {player_hp}/{player_max_hp} hp."
+            )
+        return f"""
+            Theme: {theme}
+            Room: {room_description}
+            Player action: {user_input}
+            Combat outcome: {outcome}
+
+            Task: Write 2-3 sentences of vivid combat prose describing exactly this exchange.
+            Constraints:
+            - if the enemy was killed, describe a cool finishing blow or death scene for the {enemy_name}.
+            - if the enemy survived, vividly describe how the {enemy_name} retaliated and how injured the player now feels at {player_hp}/{player_max_hp} hp.
+            - do not contradict the combat outcome facts above.
+            - do not pad with unrelated room atmosphere.
+            - after the prose, append exactly these two lines in plain text:
+              Directions: <comma-separated exits or "none">
+              Items: <comma-separated visible room item names or "none">
+            - the Directions and Items lines must match Available Exits and Visible Room Items exactly.
+            Available Exits: {exits_text}
+            Visible Room Items: {room_items_text}
+            Remaining Enemies: {enemies_text}
+            """
+
     def _build_narration_prompt(
         self,
         theme: str,
@@ -562,17 +673,62 @@ class GameEngine:
                 self.state.history.append(f"Action: {user_input} | Result: {final_narrative}")
                 save_game(self.state, self.save_path)
                 return (final_narrative, intent_data)
-            narrative_prompt = self._build_narration_prompt(
-                theme=self.state.theme,
-                room_description=narrative_room.description,
-                user_action=user_input,
-                logic_result=result_text,
-                action_type=action_type,
-                available_exits=list(narrative_room.exits.keys()),
-                visible_items=[i.name for i in narrative_room.items],
-                visible_enemies=[e.name for e in narrative_room.enemies],
-                history_context=self._history_context(),
-            )
+            if action_type == "inventory":
+                narrative_prompt = self._build_inventory_prompt(
+                    theme=self.state.theme,
+                    inventory_items=[i.name for i in self.state.player.inventory],
+                    user_input=user_input,
+                    room_description=narrative_room.description,
+                    available_exits=list(narrative_room.exits.keys()),
+                    visible_items=[i.name for i in narrative_room.items],
+                )
+            elif action_type == "health":
+                narrative_prompt = self._build_health_prompt(
+                    theme=self.state.theme,
+                    hp=self.state.player.hp,
+                    max_hp=self.state.player.max_hp,
+                    user_input=user_input,
+                    room_description=narrative_room.description,
+                    available_exits=list(narrative_room.exits.keys()),
+                    visible_items=[i.name for i in narrative_room.items],
+                )
+            elif action_type == "attack":
+                _combat_target = intent_data.get("target", "").lower()
+                _enemy_defeated = not any(
+                    _combat_target in e.name.lower() for e in narrative_room.enemies
+                )
+                # parse damage values out of result_text
+                _dealt_match = re.search(r"for (\d+) damage", result_text)
+                _retaliation_match = re.search(r"retaliates? for (\d+) damage", result_text)
+                _dealt = int(_dealt_match.group(1)) if _dealt_match else 0
+                _retaliation = int(_retaliation_match.group(1)) if _retaliation_match else 0
+                narrative_prompt = self._build_combat_prompt(
+                    theme=self.state.theme,
+                    enemy_name=_combat_target,
+                    enemy_defeated=_enemy_defeated,
+                    player_damage_dealt=_dealt,
+                    enemy_damage_dealt=_retaliation,
+                    player_hp=self.state.player.hp,
+                    player_max_hp=self.state.player.max_hp,
+                    user_input=user_input,
+                    room_description=narrative_room.description,
+                    available_exits=list(narrative_room.exits.keys()),
+                    visible_items=[i.name for i in narrative_room.items],
+                    remaining_enemies=[e.name for e in narrative_room.enemies],
+                )
+            else:
+                narrative_prompt = self._build_narration_prompt(
+                    theme=self.state.theme,
+                    room_description=narrative_room.description,
+                    user_action=user_input,
+                    logic_result=result_text,
+                    action_type=action_type,
+                    available_exits=list(narrative_room.exits.keys()),
+                    visible_items=[i.name for i in narrative_room.items],
+                    visible_enemies=[e.name for e in narrative_room.enemies],
+                    history_context=self._history_context(),
+                )
+            print(f"[debug] narrative prompt ({action_type}):\n{narrative_prompt}")
             try:
                 assert llm_service is not None
                 llm_narrative = await llm_service.generate_text(narrative_prompt)
